@@ -1,6 +1,0 @@
-{
-  "name": "Tantrik vs Daanav: Demon Slayer",
-  "description": "A first-person webcam hand-gesture combat game inspired by Indian dark fantasy folklore. Cast two-handed Tantrik mudras in real time to banish the Daanav.",
-  "requestFramePermissions": ["camera"],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
