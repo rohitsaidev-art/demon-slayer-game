@@ -6,9 +6,16 @@ export interface Landmark {
   z: number;
 }
 
+export const HAND_CONFIDENCE_THRESHOLD = 0.65;
+export const GESTURE_CONFIDENCE_THRESHOLD = 0.55;
+
 export interface DetectedHandsResult {
   left: MudraId | null;
   right: MudraId | null;
+  leftConfidence: number;
+  rightConfidence: number;
+  leftHandedness: 'left' | 'right';
+  rightHandedness: 'left' | 'right';
   leftLandmarks: Landmark[] | null;
   rightLandmarks: Landmark[] | null;
 }
@@ -122,7 +129,6 @@ export function classifyMudraFromLandmarks(
 }
 
 export async function createMediaPipeRecognizer(): Promise<MediaPipeGestureRecognizer> {
-  // Dynamic import from CDN so Vite does not attempt static local resolution
   const visionModule = await import(/* @vite-ignore */ VISION_ESM_URL);
   const { FilesetResolver, GestureRecognizer } = visionModule;
 
@@ -136,9 +142,11 @@ export async function createMediaPipeRecognizer(): Promise<MediaPipeGestureRecog
       },
       runningMode: 'VIDEO',
       numHands: 2,
+      minHandDetectionConfidence: HAND_CONFIDENCE_THRESHOLD,
+      minHandPresenceConfidence: HAND_CONFIDENCE_THRESHOLD,
+      minTrackingConfidence: HAND_CONFIDENCE_THRESHOLD,
     });
   } catch {
-    // Fallback to CPU delegate if WebGL/GPU delegate is unavailable
     return await GestureRecognizer.createFromOptions(vision, {
       baseOptions: {
         modelAssetPath: GESTURE_MODEL_URL,
@@ -146,16 +154,24 @@ export async function createMediaPipeRecognizer(): Promise<MediaPipeGestureRecog
       },
       runningMode: 'VIDEO',
       numHands: 2,
+      minHandDetectionConfidence: HAND_CONFIDENCE_THRESHOLD,
+      minHandPresenceConfidence: HAND_CONFIDENCE_THRESHOLD,
+      minTrackingConfidence: HAND_CONFIDENCE_THRESHOLD,
     });
   }
 }
 
 export function extractBothHandsFromResult(
-  result: ReturnType<MediaPipeGestureRecognizer['recognizeForVideo']>
+  result: ReturnType<MediaPipeGestureRecognizer['recognizeForVideo']>,
+  minHandConfidence: number = HAND_CONFIDENCE_THRESHOLD
 ): DetectedHandsResult {
   const output: DetectedHandsResult = {
     left: null,
     right: null,
+    leftConfidence: 0,
+    rightConfidence: 0,
+    leftHandedness: 'left',
+    rightHandedness: 'right',
     leftLandmarks: null,
     rightLandmarks: null,
   };
@@ -167,6 +183,8 @@ export function extractBothHandsFromResult(
   interface CandidateHand {
     mirroredX: number;
     mudra: MudraId | null;
+    handConfidence: number;
+    handedness: 'left' | 'right';
     landmarks: Landmark[];
   }
 
@@ -176,31 +194,62 @@ export function extractBothHandsFromResult(
     const lm = result.landmarks[i];
     if (!lm || lm.length === 0) continue;
 
+    const topHandedness = result.handednesses?.[i]?.[0];
+    const handConfidence = topHandedness?.score ?? 0.85;
+
+    // Filter out low-confidence hand detections caused by background noise
+    if (handConfidence < minHandConfidence) {
+      continue;
+    }
+
     const topGesture = result.gestures?.[i]?.[0];
-    const mpCategory = topGesture && topGesture.score >= 0.35 ? topGesture.categoryName : null;
+    const mpCategory =
+      topGesture && topGesture.score >= GESTURE_CONFIDENCE_THRESHOLD
+        ? topGesture.categoryName
+        : null;
     const mudra = classifyMudraFromLandmarks(lm, mpCategory);
 
     // Since the webcam video is mirrored horizontally (scaleX(-1)),
     // raw x = 1.0 is on the left side of the mirrored view, and raw x = 0.0 is on the right.
     const mirroredX = 1 - lm[0].x;
-    candidates.push({ mirroredX, mudra, landmarks: lm });
+    const handedness: 'left' | 'right' = mirroredX < 0.5 ? 'left' : 'right';
+
+    candidates.push({
+      mirroredX,
+      mudra,
+      handConfidence,
+      handedness,
+      landmarks: lm,
+    });
   }
 
   if (candidates.length === 1) {
     const single = candidates[0];
     if (single.mirroredX < 0.5) {
       output.left = single.mudra;
+      output.leftConfidence = single.handConfidence;
+      output.leftHandedness = 'left';
       output.leftLandmarks = single.landmarks;
     } else {
       output.right = single.mudra;
+      output.rightConfidence = single.handConfidence;
+      output.rightHandedness = 'right';
       output.rightLandmarks = single.landmarks;
     }
   } else if (candidates.length >= 2) {
     candidates.sort((a, b) => a.mirroredX - b.mirroredX);
-    output.left = candidates[0].mudra;
-    output.leftLandmarks = candidates[0].landmarks;
-    output.right = candidates[candidates.length - 1].mudra;
-    output.rightLandmarks = candidates[candidates.length - 1].landmarks;
+    const leftCand = candidates[0];
+    const rightCand = candidates[candidates.length - 1];
+
+    output.left = leftCand.mudra;
+    output.leftConfidence = leftCand.handConfidence;
+    output.leftHandedness = 'left';
+    output.leftLandmarks = leftCand.landmarks;
+
+    output.right = rightCand.mudra;
+    output.rightConfidence = rightCand.handConfidence;
+    output.rightHandedness = 'right';
+    output.rightLandmarks = rightCand.landmarks;
   }
 
   return output;

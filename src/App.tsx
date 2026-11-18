@@ -1,10 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ATTACK_SHOUTS,
-  calculateComboDurationMs,
+  BASE_COMBO_DURATION_MS,
+  calculateComboDurationWithGraceMs,
   calculateDaanavAttackDamage,
+  calculateDaanavAttackRecoveryMs,
   calculateSpellDamage,
   DaanavPose,
+  DIFFICULTY_CONFIGS,
+  DifficultyLevel,
   evaluateMatchOutcome,
   GameState,
   generateNextCombo,
@@ -13,22 +17,27 @@ import {
   INITIAL_DAANAV_HP,
   INITIAL_TANTRIK_HP,
   isComboMatched,
-  isExplicitWrongCombo,
   mapKeyToHandMudra,
   MUDRA_BY_ID,
   MUDRAS,
   MudraCombo,
   MudraId,
+  OUTCOME_NARRATIVE_TRANSITION_MS,
+  SPELL_CAST_BREATHING_MS,
 } from './game/rules';
-import { audioEngine } from './game/audio';
-import { preloadGameAssets } from './game/assets';
-import { createMediaPipeRecognizer, extractBothHandsFromResult } from './game/mediapipe';
+import { audioManager } from './game/audio';
+import { preloadGameAssets, VoiceClipId } from './game/assets';
+import {
+  createMediaPipeRecognizer,
+  extractBothHandsFromResult,
+  HAND_CONFIDENCE_THRESHOLD,
+} from './game/mediapipe';
 import { CavernBackdrop } from './components/CavernBackdrop';
 import { DaanavBoss } from './components/DaanavBoss';
 import { TantrikHandSvg } from './components/TantrikHands';
 import { GameModals, RunStatsSnapshot } from './components/GameModals';
 import { SpellCastOverlay } from './components/SpellCastOverlay';
-import { Camera, CameraOff, Check, Pause, RotateCcw, Volume2, VolumeX } from 'lucide-react';
+import { Camera, CameraOff, Check, Pause, RotateCcw, Sparkles, Volume2, VolumeX } from 'lucide-react';
 
 type PendingRoundAction = 'none' | 'next_round' | 'victory' | 'defeat';
 
@@ -42,6 +51,8 @@ export default function App() {
     }
     return 'title';
   });
+
+  const [difficulty, setDifficulty] = useState<DifficultyLevel>('medium');
 
   // Core Combat State
   const [tantrikHp, setTantrikHp] = useState<number>(INITIAL_TANTRIK_HP);
@@ -68,7 +79,14 @@ export default function App() {
   const [burstTrigger, setBurstTrigger] = useState<number>(0);
   const [burstType, setBurstType] = useState<'spell' | 'damage' | null>(null);
   const [spellTrigger, setSpellTrigger] = useState<number>(0);
-  const [screenShake, setScreenShake] = useState<boolean>(false);
+
+  // Narrative Prelude & Screen Transition State
+  const [isIntroPrelude, setIsIntroPrelude] = useState<boolean>(false);
+  const [activeIntroVoice, setActiveIntroVoice] = useState<VoiceClipId | null>(null);
+  const [endingTransitionOutcome, setEndingTransitionOutcome] = useState<'victory' | 'defeat' | null>(
+    null
+  );
+  const [screenVeilActive, setScreenVeilActive] = useState<boolean>(false);
 
   // Audio & Webcam UI State
   const [isMuted, setIsMuted] = useState<boolean>(false);
@@ -84,28 +102,54 @@ export default function App() {
   const recognizerRef = useRef<Awaited<ReturnType<typeof createMediaPipeRecognizer>> | null>(null);
 
   const gameStateRef = useRef<GameState>(gameState);
+  const difficultyRef = useRef<DifficultyLevel>(difficulty);
   const cameraStatusRef = useRef(cameraStatus);
   const targetComboRef = useRef<MudraCombo>(targetCombo);
   const detectedLeftRef = useRef<MudraId | null>(null);
   const detectedRightRef = useRef<MudraId | null>(null);
+  const candidateLeftMudraRef = useRef<MudraId | null>(null);
+  const candidateRightMudraRef = useRef<MudraId | null>(null);
   const tantrikHpRef = useRef<number>(tantrikHp);
   const daanavHpRef = useRef<number>(daanavHp);
   const streakRef = useRef<number>(streak);
   const bestStreakRef = useRef<number>(bestStreak);
   const spellsCastRef = useRef<number>(spellsCast);
+  const consecutiveDaanavAttacksRef = useRef<number>(0);
 
-  const comboDurationMsRef = useRef<number>(2800);
-  const comboRemainingMsRef = useRef<number>(2800);
+  const comboDurationMsRef = useRef<number>(BASE_COMBO_DURATION_MS);
+  const comboRemainingMsRef = useRef<number>(BASE_COMBO_DURATION_MS);
   const holdMatchedMsRef = useRef<number>(0);
-  const holdWrongMsRef = useRef<number>(0);
   const roundCooldownMsRef = useRef<number>(0);
+  const lastAttackRecoveryMsRef = useRef<number>(0);
   const pendingRoundActionRef = useRef<PendingRoundAction>('none');
+  const wasIntroDialoguePlayingRef = useRef<boolean>(false);
   const runStartTimeRef = useRef<number>(performance.now());
   const lastWarningTickSecRef = useRef<number>(-1);
   const shoutCounterRef = useRef<number>(0);
+  const veilTimeoutRef = useRef<number | null>(null);
+
+  const triggerScreenVeil = useCallback((durationMs: number = 320) => {
+    if (veilTimeoutRef.current !== null) {
+      window.clearTimeout(veilTimeoutRef.current);
+    }
+    setScreenVeilActive(true);
+    veilTimeoutRef.current = window.setTimeout(() => {
+      setScreenVeilActive(false);
+      veilTimeoutRef.current = null;
+    }, durationMs);
+  }, []);
 
   useEffect(() => {
     preloadGameAssets();
+    audioManager.preloadTracks();
+    if (gameStateRef.current === 'playing') {
+      audioManager.startEncounterAudio();
+    }
+    return () => {
+      if (veilTimeoutRef.current !== null) {
+        window.clearTimeout(veilTimeoutRef.current);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -113,7 +157,14 @@ export default function App() {
     if (typeof document !== 'undefined') {
       document.body.dataset.state = gameState;
     }
+    if (gameState !== 'gameover') {
+      audioManager.syncGameState(gameState);
+    }
   }, [gameState]);
+
+  useEffect(() => {
+    difficultyRef.current = difficulty;
+  }, [difficulty]);
 
   useEffect(() => {
     cameraStatusRef.current = cameraStatus;
@@ -134,6 +185,7 @@ export default function App() {
   }, [daanavHp]);
 
   const initWebcamAndMediaPipe = useCallback(async () => {
+    audioManager.unlockFromUserGesture();
     if (cameraStatusRef.current === 'requesting' || cameraStatusRef.current === 'ready') return;
     if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
       setCameraStatus('denied');
@@ -164,7 +216,7 @@ export default function App() {
 
   useEffect(() => {
     return () => {
-      audioEngine.stopAmbientDrone();
+      void audioManager.fadeOutAndStopAll();
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
         streamRef.current = null;
@@ -183,26 +235,30 @@ export default function App() {
     targetComboRef.current = nextCombo;
     setTargetCombo(nextCombo);
 
-    const nextDuration = calculateComboDurationMs(nextDaanavHp, nextStreak);
+    const nextDuration = calculateComboDurationWithGraceMs(
+      nextDaanavHp,
+      nextStreak,
+      consecutiveDaanavAttacksRef.current,
+      difficultyRef.current
+    );
     comboDurationMsRef.current = nextDuration;
     comboRemainingMsRef.current = nextDuration;
     holdMatchedMsRef.current = 0;
-    holdWrongMsRef.current = 0;
     lastWarningTickSecRef.current = -1;
     pendingRoundActionRef.current = 'none';
 
-    // In keyboard mode, reset active selections so the player locks the new combo cleanly.
-    // In live webcam mode, MediaPipe continuously updates detectedLeftRef / detectedRightRef.
-    if (cameraStatusRef.current !== 'ready') {
-      detectedLeftRef.current = null;
-      detectedRightRef.current = null;
-      setActiveDetectedLeft(null);
-      setActiveDetectedRight(null);
-    }
+    detectedLeftRef.current = null;
+    detectedRightRef.current = null;
+    setActiveDetectedLeft(null);
+    setActiveDetectedRight(null);
 
     if (timerBarRef.current) {
       timerBarRef.current.style.transform = 'scaleX(1)';
       timerBarRef.current.style.backgroundColor = '#D4AF37';
+    }
+    if (holdBarRef.current) {
+      holdBarRef.current.style.transform = 'scaleX(0)';
+      holdBarRef.current.style.opacity = '0';
     }
   }, []);
 
@@ -210,12 +266,8 @@ export default function App() {
     (outcome: 'victory' | 'defeat', finalTantrikHp: number, finalDaanavHp: number) => {
       pendingRoundActionRef.current = 'none';
       roundCooldownMsRef.current = 0;
-      audioEngine.stopAmbientDrone();
-      if (outcome === 'victory') {
-        audioEngine.playVictoryFanfare();
-      } else {
-        audioEngine.playDefeatSting();
-      }
+      setEndingTransitionOutcome(null);
+      triggerScreenVeil(340);
 
       const elapsedSec = Math.max(
         1,
@@ -229,23 +281,27 @@ export default function App() {
         spellsCast: spellsCastRef.current,
         tantrikHpLeft: Math.max(0, finalTantrikHp),
         daanavHpLeft: Math.max(0, finalDaanavHp),
+        difficulty: difficultyRef.current,
       });
 
       gameStateRef.current = 'gameover';
       setGameState('gameover');
+
+      audioManager.triggerOutcomeSequence(outcome);
     },
-    []
+    [triggerScreenVeil]
   );
 
   const executeSpellSuccess = useCallback(() => {
-    if (roundCooldownMsRef.current > 0) return;
+    if (audioManager.isInitialEncounterDialoguePlaying()) return;
+    if (roundCooldownMsRef.current > 0 || pendingRoundActionRef.current !== 'none') return;
 
     const ratio = Math.max(
       0,
       Math.min(1, comboRemainingMsRef.current / comboDurationMsRef.current)
     );
     const currentStreak = streakRef.current;
-    const damage = calculateSpellDamage(currentStreak, ratio);
+    const damage = calculateSpellDamage(currentStreak, ratio, difficultyRef.current);
     const nextDaanavHp = Math.max(0, daanavHpRef.current - damage);
     const nextStreak = currentStreak + 1;
     const nextBest = Math.max(bestStreakRef.current, nextStreak);
@@ -255,6 +311,7 @@ export default function App() {
     streakRef.current = nextStreak;
     bestStreakRef.current = nextBest;
     spellsCastRef.current = nextSpells;
+    consecutiveDaanavAttacksRef.current = 0;
 
     setDaanavHp(nextDaanavHp);
     setStreak(nextStreak);
@@ -270,24 +327,40 @@ export default function App() {
     setBurstTrigger((prev) => prev + 1);
     setSpellTrigger((prev) => prev + 1);
 
-    audioEngine.playSpellCastHit(nextStreak);
-
     const outcome = evaluateMatchOutcome(tantrikHpRef.current, nextDaanavHp);
-    roundCooldownMsRef.current = 520;
-    pendingRoundActionRef.current = outcome === 'victory' ? 'victory' : 'next_round';
+    if (outcome === 'victory') {
+      audioManager.triggerOutcomeSequence('victory');
+      setEndingTransitionOutcome('victory');
+      roundCooldownMsRef.current = OUTCOME_NARRATIVE_TRANSITION_MS;
+      pendingRoundActionRef.current = 'victory';
+      return;
+    }
+
+    audioManager.handlePlayerMudraSuccess(nextSpells);
+    roundCooldownMsRef.current = SPELL_CAST_BREATHING_MS;
+    pendingRoundActionRef.current = 'next_round';
   }, []);
 
   const executeDaanavAttack = useCallback(() => {
-    if (roundCooldownMsRef.current > 0) return;
+    if (audioManager.isInitialEncounterDialoguePlaying()) return;
+    if (roundCooldownMsRef.current > 0 || pendingRoundActionRef.current !== 'none') return;
 
-    const dmg = calculateDaanavAttackDamage(daanavHpRef.current);
+    const dmg = calculateDaanavAttackDamage(daanavHpRef.current, difficultyRef.current);
     const nextTantrikHp = Math.max(0, tantrikHpRef.current - dmg);
 
     tantrikHpRef.current = nextTantrikHp;
     streakRef.current = 0;
+    consecutiveDaanavAttacksRef.current += 1;
 
     setTantrikHp(nextTantrikHp);
     setStreak(0);
+
+    // Clear active hand lock states so stale poses never trigger consecutive unrestrained attacks
+    detectedLeftRef.current = null;
+    detectedRightRef.current = null;
+    holdMatchedMsRef.current = 0;
+    setActiveDetectedLeft(null);
+    setActiveDetectedRight(null);
 
     const shout = ATTACK_SHOUTS[shoutCounterRef.current % ATTACK_SHOUTS.length];
     shoutCounterRef.current += 1;
@@ -296,17 +369,28 @@ export default function App() {
     setDaanavPose('ATTACKING');
     setBurstType('damage');
     setBurstTrigger((prev) => prev + 1);
-    setScreenShake(true);
-    window.setTimeout(() => setScreenShake(false), 420);
-
-    audioEngine.playDaanavRoarAttack();
 
     const outcome = evaluateMatchOutcome(nextTantrikHp, daanavHpRef.current);
-    roundCooldownMsRef.current = 620;
-    pendingRoundActionRef.current = outcome === 'defeat' ? 'defeat' : 'next_round';
+    if (outcome === 'defeat') {
+      audioManager.triggerOutcomeSequence('defeat');
+      setEndingTransitionOutcome('defeat');
+      roundCooldownMsRef.current = OUTCOME_NARRATIVE_TRANSITION_MS;
+      pendingRoundActionRef.current = 'defeat';
+      return;
+    }
+
+    audioManager.handleRakshasaMajorAttack();
+    // Apply 2500ms base recovery (`DAANAV_ATTACK_RECOVERY_MS`) + randomized jitter delay
+    // to break predictable attack patterns and give the player breathing room
+    const randomizedRecoveryMs = calculateDaanavAttackRecoveryMs(difficultyRef.current);
+    lastAttackRecoveryMsRef.current = randomizedRecoveryMs;
+    roundCooldownMsRef.current = randomizedRecoveryMs;
+    pendingRoundActionRef.current = 'next_round';
   }, []);
 
   const startNewFight = useCallback(() => {
+    triggerScreenVeil(360);
+
     const initialCombo: MudraCombo = { left: 'ILoveYou', right: 'Open_Palm' };
     targetComboRef.current = initialCombo;
     setTargetCombo(initialCombo);
@@ -316,6 +400,7 @@ export default function App() {
     streakRef.current = 0;
     bestStreakRef.current = 0;
     spellsCastRef.current = 0;
+    consecutiveDaanavAttacksRef.current = 0;
 
     setTantrikHp(INITIAL_TANTRIK_HP);
     setTantrikGhostHp(INITIAL_TANTRIK_HP);
@@ -327,20 +412,21 @@ export default function App() {
     setDaanavPose('IDLE');
     setShoutText(null);
     setRunSnapshot(null);
+    setEndingTransitionOutcome(null);
 
-    // Initialize hands in a neutral Closed_Fist ready stance so they don't appear
-    // already locked into the first target combo before the player acts!
     detectedLeftRef.current = null;
     detectedRightRef.current = null;
+    candidateLeftMudraRef.current = null;
+    candidateRightMudraRef.current = null;
     setActiveDetectedLeft(null);
     setActiveDetectedRight(null);
     setLeftHandMudra('Closed_Fist');
     setRightHandMudra('Closed_Fist');
 
-    comboDurationMsRef.current = 2800;
-    comboRemainingMsRef.current = 2800;
+    const startDurationMs = DIFFICULTY_CONFIGS[difficultyRef.current].baseComboDurationMs;
+    comboDurationMsRef.current = startDurationMs;
+    comboRemainingMsRef.current = startDurationMs;
     holdMatchedMsRef.current = 0;
-    holdWrongMsRef.current = 0;
     roundCooldownMsRef.current = 0;
     pendingRoundActionRef.current = 'none';
     runStartTimeRef.current = performance.now();
@@ -356,24 +442,30 @@ export default function App() {
 
     gameStateRef.current = 'playing';
     setGameState('playing');
-    audioEngine.startAmbientDrone();
-  }, []);
+    audioManager.unlockFromUserGesture();
+    audioManager.startEncounterAudio();
+    wasIntroDialoguePlayingRef.current = audioManager.isInitialEncounterDialoguePlaying();
+    setIsIntroPrelude(wasIntroDialoguePlayingRef.current);
+  }, [triggerScreenVeil]);
 
   const setHandMudraSelection = useCallback((hand: 'left' | 'right', mudra: MudraId) => {
+    if (audioManager.isInitialEncounterDialoguePlaying()) {
+      if (hand === 'left') {
+        setLeftHandMudra(mudra);
+      } else {
+        setRightHandMudra(mudra);
+      }
+      return;
+    }
+
     if (hand === 'left') {
       detectedLeftRef.current = mudra;
       setActiveDetectedLeft(mudra);
       setLeftHandMudra(mudra);
-      if (mudra === targetComboRef.current.left) {
-        audioEngine.playMudraLock('left');
-      }
     } else {
       detectedRightRef.current = mudra;
       setActiveDetectedRight(mudra);
       setRightHandMudra(mudra);
-      if (mudra === targetComboRef.current.right) {
-        audioEngine.playMudraLock('right');
-      }
     }
   }, []);
 
@@ -401,10 +493,8 @@ export default function App() {
       if (e.key === 'Escape' || e.key.toLowerCase() === 'p') {
         e.preventDefault();
         if (state === 'playing') {
-          audioEngine.stopAmbientDrone();
           setGameState('paused');
         } else if (state === 'paused') {
-          audioEngine.startAmbientDrone();
           setGameState('playing');
         }
         return;
@@ -414,10 +504,7 @@ export default function App() {
         e.preventDefault();
         setIsMuted((prev) => {
           const next = !prev;
-          audioEngine.setMuted(next);
-          if (!next && gameStateRef.current === 'playing') {
-            audioEngine.startAmbientDrone();
-          }
+          audioManager.setMuted(next);
           return next;
         });
         return;
@@ -430,6 +517,10 @@ export default function App() {
       }
 
       if (state !== 'playing') return;
+
+      if (audioManager.isInitialEncounterDialoguePlaying()) {
+        return;
+      }
 
       if (e.key === ' ') {
         e.preventDefault();
@@ -450,7 +541,7 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [setHandMudraSelection, startNewFight]);
 
-  // Unified Simulation, Throttled 15Hz MediaPipe Vision & Deterministic Round State Machine
+  // High-Frequency Simulation, 30Hz MediaPipe Vision with Confidence Filtering & Round State Machine
   useEffect(() => {
     let timerId = 0;
     let cancelled = false;
@@ -465,35 +556,68 @@ export default function App() {
       lastTime = now;
       const dtMs = Math.min(rawDtMs, 50);
 
-      // 1. Throttled ~15Hz MediaPipe 2-Hand Recognition (every 65ms so vision never stalls UI)
+      const isIntroDialogueActive = audioManager.isInitialEncounterDialoguePlaying();
+      if (isIntroDialogueActive !== wasIntroDialoguePlayingRef.current) {
+        wasIntroDialoguePlayingRef.current = isIntroDialogueActive;
+        setIsIntroPrelude(isIntroDialogueActive);
+        if (!isIntroDialogueActive) {
+          setActiveIntroVoice(null);
+          holdMatchedMsRef.current = 0;
+          comboRemainingMsRef.current = comboDurationMsRef.current;
+        }
+      } else if (isIntroDialogueActive) {
+        const snap = audioManager.getSnapshot();
+        setActiveIntroVoice((prev) => (prev !== snap.activeVoice ? snap.activeVoice : prev));
+      }
+
+      // 1. High-Frequency ~30Hz MediaPipe 2-Hand Recognition with Hand-Confidence & Stability Check
+      // Normalizes handedness to viewport-left and viewport-right slots so both Mudras always face inward
+      // regardless of the camera's raw output orientation.
       const video = videoRef.current;
       const recognizer = recognizerRef.current;
       if (
         video &&
         recognizer &&
         video.readyState >= 2 &&
-        now - lastVisionTime >= 65 &&
+        now - lastVisionTime >= 33 &&
         video.currentTime !== lastVisionVideoTime
       ) {
         lastVisionTime = now;
         lastVisionVideoTime = video.currentTime;
         try {
           const mpResult = recognizer.recognizeForVideo(video, now);
-          const hands = extractBothHandsFromResult(mpResult);
-          if (hands.left && hands.left !== detectedLeftRef.current) {
-            detectedLeftRef.current = hands.left;
-            setActiveDetectedLeft(hands.left);
-            setLeftHandMudra(hands.left);
-            if (hands.left === targetComboRef.current.left) {
-              audioEngine.playMudraLock('left');
+          const hands = extractBothHandsFromResult(mpResult, HAND_CONFIDENCE_THRESHOLD);
+
+          const resolvedLeftMudra =
+            hands.left && hands.leftConfidence >= HAND_CONFIDENCE_THRESHOLD ? hands.left : null;
+          const resolvedRightMudra =
+            hands.right && hands.rightConfidence >= HAND_CONFIDENCE_THRESHOLD ? hands.right : null;
+
+          if (resolvedLeftMudra) {
+            if (resolvedLeftMudra === candidateLeftMudraRef.current) {
+              if (resolvedLeftMudra !== detectedLeftRef.current) {
+                setLeftHandMudra(resolvedLeftMudra);
+                if (!isIntroDialogueActive) {
+                  detectedLeftRef.current = resolvedLeftMudra;
+                  setActiveDetectedLeft(resolvedLeftMudra);
+                }
+              }
+            } else {
+              candidateLeftMudraRef.current = resolvedLeftMudra;
             }
           }
-          if (hands.right && hands.right !== detectedRightRef.current) {
-            detectedRightRef.current = hands.right;
-            setActiveDetectedRight(hands.right);
-            setRightHandMudra(hands.right);
-            if (hands.right === targetComboRef.current.right) {
-              audioEngine.playMudraLock('right');
+
+          if (resolvedRightMudra) {
+            if (resolvedRightMudra === candidateRightMudraRef.current) {
+              if (resolvedRightMudra !== detectedRightRef.current) {
+                setRightHandMudra(resolvedRightMudra);
+                if (!isIntroDialogueActive) {
+                  detectedRightRef.current = resolvedRightMudra;
+                  setActiveDetectedRight(resolvedRightMudra);
+                }
+              }
+            } else {
+              candidateRightMudraRef.current = resolvedRightMudra;
             }
           }
         } catch {}
@@ -515,8 +639,19 @@ export default function App() {
               triggerNextComboRound(daanavHpRef.current, streakRef.current);
             }
           }
+        } else if (isIntroDialogueActive) {
+          holdMatchedMsRef.current = 0;
+          if (timerBarRef.current) {
+            timerBarRef.current.style.transform = 'scaleX(1)';
+            timerBarRef.current.style.backgroundColor = '#D4AF37';
+          }
+          if (holdBarRef.current) {
+            holdBarRef.current.style.transform = 'scaleX(0)';
+            holdBarRef.current.style.opacity = '0';
+          }
         } else {
           comboRemainingMsRef.current = Math.max(0, comboRemainingMsRef.current - dtMs);
+
           const ratio =
             comboDurationMsRef.current > 0
               ? comboRemainingMsRef.current / comboDurationMsRef.current
@@ -525,14 +660,13 @@ export default function App() {
           if (timerBarRef.current) {
             timerBarRef.current.style.transform = `scaleX(${Math.max(0, Math.min(1, ratio))})`;
             timerBarRef.current.style.backgroundColor =
-              ratio < 0.3 ? '#EF4444' : ratio < 0.55 ? '#F59E0B' : '#D4AF37';
+              ratio < 0.28 ? '#EF4444' : ratio < 0.52 ? '#F59E0B' : '#D4AF37';
           }
 
           if (comboRemainingMsRef.current > 0 && comboRemainingMsRef.current < 900) {
             const tenthSec = Math.floor(comboRemainingMsRef.current / 220);
             if (tenthSec !== lastWarningTickSecRef.current) {
               lastWarningTickSecRef.current = tenthSec;
-              audioEngine.playTimerWarningTick(ratio);
             }
           }
 
@@ -542,7 +676,6 @@ export default function App() {
 
           if (isComboMatched(target, detL, detR)) {
             holdMatchedMsRef.current += dtMs;
-            holdWrongMsRef.current = 0;
 
             if (holdBarRef.current) {
               const holdRatio = Math.min(1, holdMatchedMsRef.current / HOLD_DEBOUNCE_MS);
@@ -559,22 +692,11 @@ export default function App() {
               executeSpellSuccess();
             }
           } else {
-            // Smooth decay instead of harsh 0 reset so brief webcam jitter never feels stuck
-            holdMatchedMsRef.current = Math.max(0, holdMatchedMsRef.current - dtMs * 1.5);
+            holdMatchedMsRef.current = Math.max(0, holdMatchedMsRef.current - dtMs * 1.4);
             if (holdBarRef.current) {
               const holdRatio = Math.min(1, holdMatchedMsRef.current / HOLD_DEBOUNCE_MS);
               holdBarRef.current.style.transform = `scaleX(${holdRatio})`;
               holdBarRef.current.style.opacity = holdRatio > 0.05 ? '1' : '0';
-            }
-
-            if (isExplicitWrongCombo(target, detL, detR)) {
-              holdWrongMsRef.current += dtMs;
-              if (holdWrongMsRef.current >= 520) {
-                holdWrongMsRef.current = 0;
-                executeDaanavAttack();
-              }
-            } else {
-              holdWrongMsRef.current = Math.max(0, holdWrongMsRef.current - dtMs);
             }
           }
 
@@ -584,25 +706,29 @@ export default function App() {
         }
       }
 
-      timerId = window.setTimeout(tick, 30);
+      timerId = window.setTimeout(tick, 16);
     };
 
-    timerId = window.setTimeout(tick, 30);
+    timerId = window.setTimeout(tick, 16);
     return () => {
       cancelled = true;
       clearTimeout(timerId);
     };
   }, [executeDaanavAttack, executeSpellSuccess, finishMatch, triggerNextComboRound]);
 
-  const leftMatched = activeDetectedLeft === targetCombo.left;
-  const rightMatched = activeDetectedRight === targetCombo.right;
+  const leftMatched = !isIntroPrelude && activeDetectedLeft === targetCombo.left;
+  const rightMatched = !isIntroPrelude && activeDetectedRight === targetCombo.right;
 
   return (
-    <main
-      className={`relative w-screen h-screen overflow-hidden bg-[#050807] select-none ${
-        screenShake ? ' translate-x-2 -translate-y-1.5' : ''
-      }`}
-    >
+    <main className="relative w-screen h-screen overflow-hidden bg-[#050807] select-none">
+      {/* Smooth Ceremonial Screen Veil Transition Overlay */}
+      <div
+        aria-hidden="true"
+        className={`fixed inset-0 z-50 pointer-events-none bg-[#040706] transition-opacity duration-350 ${
+          screenVeilActive ? 'opacity-85' : 'opacity-0'
+        }`}
+      />
+
       {/* Mirrored Webcam Video Element for MediaPipe */}
       <video
         ref={videoRef}
@@ -623,8 +749,12 @@ export default function App() {
         burstType={burstType}
       />
 
-      {/* 1b. Foreground Magical Energy Burst Particle System */}
-      <SpellCastOverlay spellTrigger={spellTrigger} streak={streak} />
+      {/* 1b. Foreground Magical Energy Burst & Daanav-Hurt Blood-Mist/Smoke Particle System */}
+      <SpellCastOverlay
+        spellTrigger={spellTrigger}
+        streak={streak}
+        daanavPose={daanavPose}
+      />
 
       {/* 2. Carved Temple Stone & Antique Gold HUD Chrome */}
       <div className="fixed inset-0 z-20 pointer-events-none flex flex-col justify-between p-4 md:px-10 md:py-6">
@@ -640,6 +770,12 @@ export default function App() {
                   style={{ textShadow: '0 2px 6px rgba(0,0,0,0.95)' }}
                 >
                   TANTRIK
+                </span>
+                <span
+                  className="font-mono-tabular text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-[#151F1C] border border-[#5E4923] text-[#D4AF37]"
+                  data-testid="hud-difficulty-badge"
+                >
+                  {DIFFICULTY_CONFIGS[difficulty].label}
                 </span>
               </div>
               <span className="font-mono-tabular text-xs font-bold text-[#E5D5BE]">
@@ -738,10 +874,7 @@ export default function App() {
                   e.currentTarget.blur();
                   setIsMuted((prev) => {
                     const next = !prev;
-                    audioEngine.setMuted(next);
-                    if (!next && gameStateRef.current === 'playing') {
-                      audioEngine.startAmbientDrone();
-                    }
+                    audioManager.setMuted(next);
                     return next;
                   });
                 }}
@@ -762,10 +895,8 @@ export default function App() {
                 onClick={(e) => {
                   e.currentTarget.blur();
                   if (gameState === 'playing') {
-                    audioEngine.stopAmbientDrone();
                     setGameState('paused');
                   } else if (gameState === 'paused') {
-                    audioEngine.startAmbientDrone();
                     setGameState('playing');
                   }
                 }}
@@ -804,9 +935,49 @@ export default function App() {
 
         {/* ==================== BOTTOM HUD: CARVED TEMPLE MUDRA SHRINE & TIMER ==================== */}
         <div className="relative z-30 flex flex-col items-center justify-end pb-1">
-          {/* Carved Temple Stone Mudra Shrine Box (Interactive: clicking either tile locks that hand!) */}
+          {/* Narrative Dialogue Transition Banner (Before Battle Starts & At Battle End) */}
+          {gameState === 'playing' && isIntroPrelude && (
+            <div
+              data-testid="narrative-prelude-banner"
+              className="mb-2.5 px-5 py-2 rounded bg-[#090E0C]/95 border border-[#D4AF37] shadow-[0_8px_24px_rgba(0,0,0,0.95)] flex items-center gap-3 transition-all duration-300"
+            >
+              <Sparkles className="w-4 h-4 text-[#FBBF24] shrink-0" />
+              <div className="text-center sm:text-left">
+                <div className="font-display font-bold text-[11px] tracking-widest uppercase text-[#FBBF24]">
+                  {activeIntroVoice === 'tantrik_1st_dialogue'
+                    ? 'TANTRIK INVOCATION · PREPARING MUDRA SEAL'
+                    : 'RAKSHASA AWAKENS · SANCTUM STANDOFF'}
+                </div>
+                <div className="text-xs text-[#E5D5BE]">
+                  {activeIntroVoice === 'tantrik_1st_dialogue'
+                    ? '“I have come to end your reign of terror!” — Ready your hands for combat.'
+                    : '“Another soul comes willingly into my grasp...” — Combat begins after the invocation.'}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {gameState === 'playing' && endingTransitionOutcome && (
+            <div
+              data-testid="narrative-outro-banner"
+              className="mb-2.5 px-5 py-2 rounded bg-[#090E0C]/95 border border-[#D4AF37] shadow-[0_8px_24px_rgba(0,0,0,0.95)] flex items-center gap-3 transition-all duration-300"
+            >
+              <Sparkles className="w-4 h-4 text-[#FBBF24] shrink-0" />
+              <div className="text-center">
+                <div className="font-display font-bold text-xs tracking-widest uppercase text-[#FBBF24]">
+                  {endingTransitionOutcome === 'victory'
+                    ? 'THE RAKSHASA CRUMBLES · SEALING THE SANCTUM'
+                    : 'THE SANCTUM FALLS · DARKNESS CONSUMES THE RITE'}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Carved Temple Stone Mudra Shrine Box */}
           <div
-            className="pointer-events-auto flex items-center gap-3.5 mb-2 px-5 py-2 rounded bg-[#090E0C]/92 border-2 border-[#8C6D32] shadow-[0_12px_30px_rgba(0,0,0,0.95)]"
+            className={`pointer-events-auto flex items-center gap-3.5 mb-2 px-5 py-2 rounded bg-[#090E0C]/92 border-2 border-[#8C6D32] shadow-[0_12px_30px_rgba(0,0,0,0.95)] transition-opacity duration-300 ${
+              isIntroPrelude ? 'opacity-75' : 'opacity-100'
+            }`}
             data-testid="mudra-prompt"
             data-left-target={targetCombo.left}
             data-right-target={targetCombo.right}
@@ -814,6 +985,8 @@ export default function App() {
             <button
               type="button"
               tabIndex={-1}
+              data-testid="target-left-mudra"
+              data-mudra={targetCombo.left}
               onClick={(e) => {
                 e.currentTarget.blur();
                 setHandMudraSelection('left', targetCombo.left);
@@ -843,6 +1016,8 @@ export default function App() {
             <button
               type="button"
               tabIndex={-1}
+              data-testid="target-right-mudra"
+              data-mudra={targetCombo.right}
               onClick={(e) => {
                 e.currentTarget.blur();
                 setHandMudraSelection('right', targetCombo.right);
@@ -877,7 +1052,7 @@ export default function App() {
             />
           </div>
 
-          {/* Hold Lock Debounce Progress Bar (200ms) */}
+          {/* Hold Lock Debounce Progress Bar (220ms) */}
           <div className="w-44 h-1 rounded-full bg-transparent overflow-hidden mb-1.5">
             <div
               ref={holdBarRef}
@@ -901,7 +1076,7 @@ export default function App() {
                     setHandMudraSelection('left', m.id);
                   }}
                   className={`px-1.5 py-0.5 rounded border text-xs flex items-center gap-1 cursor-pointer transition-colors whitespace-nowrap ${
-                    activeDetectedLeft === m.id
+                    !isIntroPrelude && activeDetectedLeft === m.id
                       ? 'bg-[#7F1D1D] border-[#FBBF24] text-white'
                       : 'bg-[#111916] border-[#3E301B] text-[#C7B69E] hover:border-[#8C6D32]'
                   }`}
@@ -916,16 +1091,26 @@ export default function App() {
               type="button"
               tabIndex={-1}
               aria-label="Cast Matched Mudra Combo"
+              disabled={isIntroPrelude}
               onClick={(e) => {
                 e.currentTarget.blur();
+                if (audioManager.isInitialEncounterDialoguePlaying()) return;
                 const combo = targetComboRef.current;
                 setHandMudraSelection('left', combo.left);
                 setHandMudraSelection('right', combo.right);
               }}
-              className="px-3 py-1 rounded bg-[#991B1B] hover:bg-[#B91C1C] border border-[#D4AF37] text-[#FEF2F2] font-display font-bold text-[11px] tracking-wider uppercase cursor-pointer whitespace-nowrap"
-              title="Match both hands to current combo [Space]"
+              className={`px-3 py-1 rounded border font-display font-bold text-[11px] tracking-wider uppercase whitespace-nowrap transition-opacity ${
+                isIntroPrelude
+                  ? 'bg-[#451A1A] border-[#785C2A]/60 text-[#D6C7B2]/60 cursor-not-allowed'
+                  : 'bg-[#991B1B] hover:bg-[#B91C1C] border-[#D4AF37] text-[#FEF2F2] cursor-pointer'
+              }`}
+              title={
+                isIntroPrelude
+                  ? 'Await the opening invocation before casting Mudras'
+                  : 'Match both hands to current combo [Space]'
+              }
             >
-              Cast [Space]
+              {isIntroPrelude ? 'Invocation...' : 'Cast [Space]'}
             </button>
 
             <div className="flex items-center gap-1">
@@ -941,7 +1126,7 @@ export default function App() {
                     setHandMudraSelection('right', m.id);
                   }}
                   className={`px-1.5 py-0.5 rounded border text-xs flex items-center gap-1 cursor-pointer transition-colors whitespace-nowrap ${
-                    activeDetectedRight === m.id
+                    !isIntroPrelude && activeDetectedRight === m.id
                       ? 'bg-[#7F1D1D] border-[#FBBF24] text-white'
                       : 'bg-[#111916] border-[#3E301B] text-[#C7B69E] hover:border-[#8C6D32]'
                   }`}
@@ -955,33 +1140,35 @@ export default function App() {
         </div>
       </div>
 
-      {/* 3. Photorealistic First-Person Tantrik Hands (Left & Right Foreground) */}
-      <div className="fixed inset-x-0 bottom-0 z-15 pointer-events-none flex items-end justify-between px-1 sm:px-4 md:px-10">
+      {/* 3. Photorealistic First-Person Tantrik Hands anchored flush to the bottom border */}
+      <div className="fixed inset-x-0 bottom-0 z-15 pointer-events-none flex items-end justify-between px-0">
         {/* Left Tantrik Hand */}
         <div
-          className="w-[230px] h-[300px] sm:w-[295px] sm:h-[385px] md:w-[360px] md:h-[470px] -mb-4 animate-hand-left"
+          className="w-[240px] h-[315px] sm:w-[310px] sm:h-[405px] md:w-[380px] md:h-[495px] -mb-2 animate-hand-left"
           data-testid="left-tantrik-hand"
           data-mudra={leftHandMudra}
         >
           <TantrikHandSvg
             side="left"
+            handedness="left"
             mudra={leftHandMudra}
             isMatched={leftMatched}
-            isActiveInput={activeDetectedLeft !== null}
+            isActiveInput={!isIntroPrelude && activeDetectedLeft !== null}
           />
         </div>
 
         {/* Right Tantrik Hand */}
         <div
-          className="w-[230px] h-[300px] sm:w-[295px] sm:h-[385px] md:w-[360px] md:h-[470px] -mb-4 animate-hand-right"
+          className="w-[240px] h-[315px] sm:w-[310px] sm:h-[405px] md:w-[380px] md:h-[495px] -mb-2 animate-hand-right"
           data-testid="right-tantrik-hand"
           data-mudra={rightHandMudra}
         >
           <TantrikHandSvg
             side="right"
+            handedness="right"
             mudra={rightHandMudra}
             isMatched={rightMatched}
-            isActiveInput={activeDetectedRight !== null}
+            isActiveInput={!isIntroPrelude && activeDetectedRight !== null}
           />
         </div>
       </div>
@@ -990,14 +1177,16 @@ export default function App() {
       <GameModals
         gameState={gameState}
         cameraStatus={cameraStatus}
+        difficulty={difficulty}
+        onSelectDifficulty={setDifficulty}
         onStartGame={startNewFight}
         onResumeGame={() => {
-          audioEngine.startAmbientDrone();
           setGameState('playing');
         }}
         onRestartGame={startNewFight}
         onReturnToTitle={() => {
-          audioEngine.stopAmbientDrone();
+          triggerScreenVeil(320);
+          setEndingTransitionOutcome(null);
           setGameState('title');
         }}
         onRequestCamera={initWebcamAndMediaPipe}

@@ -1,4 +1,10 @@
-export type SpellParticleKind = 'orb' | 'streak' | 'spark' | 'ring';
+export type SpellParticleKind =
+  | 'orb'
+  | 'streak'
+  | 'spark'
+  | 'ring'
+  | 'blood_mist'
+  | 'smoke';
 
 export interface SpellParticle {
   active: boolean;
@@ -28,13 +34,24 @@ export interface SpellPoolState {
   beamProgress: number;
 }
 
-export const SPELL_POOL_CAPACITY = 140;
+export const SPELL_POOL_CAPACITY = 185;
 
 const SPELL_PALETTE = [
   { color: '#F59E0B', core: '#FEF08A' }, // Sacred Saffron Gold
   { color: '#EF4444', core: '#FECACA' }, // Tantrik Crimson Fire
   { color: '#FBBF24', core: '#FFFFFF' }, // Solar Mantra Gold
   { color: '#FB923C', core: '#FEF3C7' }, // Agni Orange
+];
+
+const BLOOD_MIST_PALETTE = [
+  { color: 'rgba(185, 28, 28, 0.78)', core: 'rgba(239, 68, 68, 0.9)' }, // Arterial Crimson Mist
+  { color: 'rgba(127, 29, 29, 0.82)', core: 'rgba(185, 28, 28, 0.88)' }, // Deep Rakshasa Blood
+  { color: 'rgba(153, 27, 27, 0.75)', core: 'rgba(248, 113, 113, 0.85)' }, // Scarlet Vapor
+];
+
+const SMOKE_PALETTE = [
+  { color: 'rgba(38, 24, 26, 0.76)', core: 'rgba(82, 35, 38, 0.84)' }, // Dark Ash-Blood Smoke
+  { color: 'rgba(28, 25, 23, 0.72)', core: 'rgba(68, 54, 50, 0.8)' }, // Temple Charcoal Plume
 ];
 
 export function createSpellParticlePool(capacity: number = SPELL_POOL_CAPACITY): SpellPoolState {
@@ -194,7 +211,7 @@ export function triggerSpellCastBurst(
     slot.vx = Math.cos(angle) * speed;
     slot.vy = Math.sin(angle) * speed - (isCoreSpark ? 3.2 : 0.8);
     slot.ax = isCoreSpark ? (targetX - spawnX) * 0.015 : 0;
-    slot.ay = isCoreSpark ? (targetY - spawnY) * 0.02 : 0.18; // Sparks have slight gravity after impact
+    slot.ay = isCoreSpark ? (targetY - spawnY) * 0.02 : 0.18;
     slot.size = isCoreSpark ? 5 + rng() * 6 : 2.2 + rng() * 3.5;
     slot.maxSize = slot.size;
     slot.alpha = 1;
@@ -211,7 +228,63 @@ export function triggerSpellCastBurst(
 }
 
 /**
- * Advances all active spell particles by one simulation step.
+ * Triggers a billowing blood-mist and dark sacrificial smoke burst around Daanav
+ * specifically when entering the `daanav-hurt` (HURT) state.
+ */
+export function triggerDaanavHurtBloodMist(
+  state: SpellPoolState,
+  width: number,
+  height: number,
+  rng: () => number = Math.random
+): number {
+  const centerX = width * 0.5;
+  const centerY = height * 0.41;
+
+  let spawnedCount = 0;
+  const totalPlumes = 30;
+
+  for (let i = 0; i < totalPlumes; i++) {
+    const slot = allocateSlot(state.particles);
+    if (!slot) break;
+
+    const isBloodMist = i < 20;
+    const angle = (Math.PI * 2 * i) / totalPlumes + (rng() - 0.5) * 0.45;
+    const radialOffset = 8 + rng() * 48;
+    const startX = centerX + Math.cos(angle) * radialOffset;
+    const startY = centerY + Math.sin(angle) * (radialOffset * 0.85);
+
+    const speed = isBloodMist ? 1.8 + rng() * 4.6 : 1.2 + rng() * 3.2;
+    const palette = isBloodMist
+      ? BLOOD_MIST_PALETTE[i % BLOOD_MIST_PALETTE.length]
+      : SMOKE_PALETTE[i % SMOKE_PALETTE.length];
+
+    slot.active = true;
+    slot.kind = isBloodMist ? 'blood_mist' : 'smoke';
+    slot.x = startX;
+    slot.y = startY;
+    slot.prevX = startX;
+    slot.prevY = startY;
+    slot.vx = Math.cos(angle) * speed;
+    slot.vy = Math.sin(angle) * speed - (isBloodMist ? 0.6 : 1.35);
+    slot.ax = 0;
+    slot.ay = isBloodMist ? -0.04 : -0.09; // Gentle upward thermal rise for smoke/mist
+    slot.size = isBloodMist ? 14 + rng() * 14 : 18 + rng() * 16;
+    slot.maxSize = isBloodMist ? 42 + rng() * 30 : 54 + rng() * 36;
+    slot.alpha = 0.92;
+    slot.life = 0;
+    slot.maxLife = 18 + Math.floor(rng() * 12);
+    slot.color = palette.color;
+    slot.coreColor = palette.core;
+    slot.rotation = rng() * Math.PI * 2;
+    slot.vRot = (rng() - 0.5) * 0.08;
+    spawnedCount++;
+  }
+
+  return spawnedCount;
+}
+
+/**
+ * Advances all active spell and blood-mist/smoke particles by one simulation step.
  * Returns the number of currently active particles.
  */
 export function stepSpellParticles(state: SpellPoolState): number {
@@ -236,17 +309,28 @@ export function stepSpellParticles(state: SpellPoolState): number {
     p.prevX = p.x;
     p.prevY = p.y;
 
-    p.vx = (p.vx + p.ax) * 0.94;
-    p.vy = (p.vy + p.ay) * 0.94;
-    p.x += p.vx;
-    p.y += p.vy;
-    p.rotation += p.vRot;
-
-    if (p.kind === 'ring') {
-      p.size = p.size + (p.maxSize - p.size) * 0.24;
-      p.alpha = Math.max(0, 1 - Math.pow(progress, 1.3));
+    if (p.kind === 'blood_mist' || p.kind === 'smoke') {
+      p.vx = (p.vx + p.ax) * 0.91;
+      p.vy = (p.vy + p.ay) * 0.91;
+      p.x += p.vx;
+      p.y += p.vy;
+      p.rotation += p.vRot;
+      // Billow outward as the mist/smoke dissipates
+      p.size = p.size + (p.maxSize - p.size) * 0.14;
+      p.alpha = Math.max(0, (1 - Math.pow(progress, 1.35)) * 0.88);
     } else {
-      p.alpha = Math.max(0, 1 - Math.pow(progress, 1.5));
+      p.vx = (p.vx + p.ax) * 0.94;
+      p.vy = (p.vy + p.ay) * 0.94;
+      p.x += p.vx;
+      p.y += p.vy;
+      p.rotation += p.vRot;
+
+      if (p.kind === 'ring') {
+        p.size = p.size + (p.maxSize - p.size) * 0.24;
+        p.alpha = Math.max(0, 1 - Math.pow(progress, 1.3));
+      } else {
+        p.alpha = Math.max(0, 1 - Math.pow(progress, 1.5));
+      }
     }
 
     activeCount++;

@@ -6,6 +6,60 @@ export type MudraId =
   | 'Thumb_Up'
   | 'Pointing_Up';
 
+export type DifficultyLevel = 'easy' | 'medium' | 'hard';
+
+export interface DifficultyConfig {
+  id: DifficultyLevel;
+  label: string;
+  sanskritTitle: string;
+  baseComboDurationMs: number;
+  minComboDurationMs: number;
+  daanavBaseDamage: number;
+  daanavEnragedDamage: number;
+  tantrikBaseDamage: number;
+  attackRecoveryBonusMs: number;
+  randomAttackJitterMaxMs: number;
+}
+
+export const DIFFICULTY_CONFIGS: Record<DifficultyLevel, DifficultyConfig> = {
+  easy: {
+    id: 'easy',
+    label: 'Easy',
+    sanskritTitle: 'Shishya · Initiate',
+    baseComboDurationMs: 5200,
+    minComboDurationMs: 3600,
+    daanavBaseDamage: 14,
+    daanavEnragedDamage: 17,
+    tantrikBaseDamage: 22,
+    attackRecoveryBonusMs: 600,
+    randomAttackJitterMaxMs: 1100,
+  },
+  medium: {
+    id: 'medium',
+    label: 'Medium',
+    sanskritTitle: 'Sadhaka · Tantrik',
+    baseComboDurationMs: 4200,
+    minComboDurationMs: 2800,
+    daanavBaseDamage: 18,
+    daanavEnragedDamage: 22,
+    tantrikBaseDamage: 18,
+    attackRecoveryBonusMs: 0,
+    randomAttackJitterMaxMs: 950,
+  },
+  hard: {
+    id: 'hard',
+    label: 'Hard',
+    sanskritTitle: 'Aghori · Master',
+    baseComboDurationMs: 3300,
+    minComboDurationMs: 2100,
+    daanavBaseDamage: 22,
+    daanavEnragedDamage: 27,
+    tantrikBaseDamage: 17,
+    attackRecoveryBonusMs: 0,
+    randomAttackJitterMaxMs: 700,
+  },
+};
+
 export interface MudraInfo {
   id: MudraId;
   sanskritName: string;
@@ -96,30 +150,81 @@ export const ATTACK_SHOUTS = ['BLOOD!', 'BURN!', 'DIE!', 'ENOUGH!'] as const;
 
 export const INITIAL_TANTRIK_HP = 100;
 export const INITIAL_DAANAV_HP = 100;
-export const BASE_COMBO_DURATION_MS = 2500;
-export const MIN_COMBO_DURATION_MS = 1450;
-export const HOLD_DEBOUNCE_MS = 200;
 
-export function calculateComboDurationMs(daanavHp: number, streak: number): number {
+/**
+ * Balanced combat pacing constants:
+ * - `DAANAV_ATTACK_RECOVERY_MS` increased to 2500ms (plus randomized jitter) so there is
+ *   generous breathing room between Daanav attacks and no predictable machine-gun pattern.
+ */
+export const BASE_COMBO_DURATION_MS = 4200;
+export const MIN_COMBO_DURATION_MS = 2800;
+export const HOLD_DEBOUNCE_MS = 220;
+export const SPELL_CAST_BREATHING_MS = 1650;
+export const DAANAV_ATTACK_RECOVERY_MS = 2500;
+export const POST_ATTACK_GRACE_BONUS_MS = 900;
+export const OUTCOME_NARRATIVE_TRANSITION_MS = 1350;
+
+export function calculateComboDurationMs(
+  daanavHp: number,
+  streak: number,
+  difficulty: DifficultyLevel = 'medium'
+): number {
+  const cfg = DIFFICULTY_CONFIGS[difficulty];
   const clampedHp = Math.max(0, Math.min(100, daanavHp));
   const missingHpRatio = (100 - clampedHp) / 100;
-  // Starts at 2500ms at 100% HP, scales down as Daanav loses HP and streak rises
-  const hpReduction = missingHpRatio * 800;
-  const streakReduction = Math.min(streak, 8) * 35;
-  const rawDuration = BASE_COMBO_DURATION_MS - hpReduction - streakReduction;
-  return Math.round(Math.max(MIN_COMBO_DURATION_MS, Math.min(BASE_COMBO_DURATION_MS, rawDuration)));
+  const hpReduction = missingHpRatio * 1050;
+  const streakReduction = Math.min(streak, 7) * 50;
+  const rawDuration = cfg.baseComboDurationMs - hpReduction - streakReduction;
+  return Math.round(
+    Math.max(cfg.minComboDurationMs, Math.min(cfg.baseComboDurationMs, rawDuration))
+  );
 }
 
-export function calculateSpellDamage(streak: number, remainingTimeRatio: number): number {
-  const baseDamage = 18;
+export function calculateComboDurationWithGraceMs(
+  daanavHp: number,
+  streak: number,
+  consecutiveDaanavAttacks: number,
+  difficulty: DifficultyLevel = 'medium'
+): number {
+  const base = calculateComboDurationMs(daanavHp, streak, difficulty);
+  if (consecutiveDaanavAttacks <= 0) {
+    return base;
+  }
+  const graceBonus = Math.min(consecutiveDaanavAttacks, 2) * POST_ATTACK_GRACE_BONUS_MS;
+  return base + graceBonus;
+}
+
+/**
+ * Calculates the recovery + randomized delay after a Daanav attack (minimum `DAANAV_ATTACK_RECOVERY_MS` = 2500ms)
+ * to break predictable attack rhythms and give the player breathing room.
+ */
+export function calculateDaanavAttackRecoveryMs(
+  difficulty: DifficultyLevel = 'medium',
+  rng: () => number = Math.random
+): number {
+  const cfg = DIFFICULTY_CONFIGS[difficulty];
+  const clampedRand = Math.max(0, Math.min(1, rng()));
+  const randomDelayMs = Math.round(clampedRand * cfg.randomAttackJitterMaxMs);
+  return DAANAV_ATTACK_RECOVERY_MS + cfg.attackRecoveryBonusMs + randomDelayMs;
+}
+
+export function calculateSpellDamage(
+  streak: number,
+  remainingTimeRatio: number,
+  difficulty: DifficultyLevel = 'medium'
+): number {
+  const baseDamage = DIFFICULTY_CONFIGS[difficulty].tantrikBaseDamage;
   const streakBonus = Math.min(streak, 5) * 1.5;
   const speedBonus = Math.max(0, Math.min(1, remainingTimeRatio)) * 3.5;
   return Math.round(baseDamage + streakBonus + speedBonus);
 }
 
-export function calculateDaanavAttackDamage(daanavHp: number): number {
-  // Enrages slightly when below 40% HP
-  return daanavHp <= 40 ? 22 : 18;
+export function calculateDaanavAttackDamage(
+  daanavHp: number,
+  difficulty: DifficultyLevel = 'medium'
+): number {
+  const cfg = DIFFICULTY_CONFIGS[difficulty];
+  return daanavHp <= 40 ? cfg.daanavEnragedDamage : cfg.daanavBaseDamage;
 }
 
 export function isComboMatched(
@@ -147,7 +252,6 @@ export function generateNextCombo(
   let left = ids[Math.floor(rng() * ids.length)] ?? 'ILoveYou';
   let right = ids[Math.floor(rng() * ids.length)] ?? 'Open_Palm';
 
-  // Ensure the new combo is never identical to the immediately preceding combo
   if (previousCombo && left === previousCombo.left && right === previousCombo.right) {
     const leftIdx = ids.indexOf(left);
     left = ids[(leftIdx + 1) % ids.length];
@@ -162,7 +266,6 @@ export function mapKeyToHandMudra(
   key: string
 ): { hand: 'left' | 'right'; mudra: MudraId } | null {
   switch (key) {
-    // Left hand keys: 1 - 6
     case '1':
       return { hand: 'left', mudra: 'Open_Palm' };
     case '2':
@@ -175,7 +278,6 @@ export function mapKeyToHandMudra(
       return { hand: 'left', mudra: 'Thumb_Up' };
     case '6':
       return { hand: 'left', mudra: 'Pointing_Up' };
-    // Right hand keys: 7, 8, 9, 0, -, = (plus Q/W/E/I/O/P conveniences)
     case '7':
       return { hand: 'right', mudra: 'Open_Palm' };
     case '8':

@@ -4,7 +4,12 @@ import {
   MUDRAS,
   BASE_COMBO_DURATION_MS,
   MIN_COMBO_DURATION_MS,
+  DAANAV_ATTACK_RECOVERY_MS,
+  POST_ATTACK_GRACE_BONUS_MS,
+  DIFFICULTY_CONFIGS,
   calculateComboDurationMs,
+  calculateComboDurationWithGraceMs,
+  calculateDaanavAttackRecoveryMs,
   calculateSpellDamage,
   calculateDaanavAttackDamage,
   isComboMatched,
@@ -28,25 +33,51 @@ test('MUDRAS defines all 6 required Tantrik mudras', () => {
   ]);
 });
 
-test('calculateComboDurationMs starts at 2500ms and decreases as Daanav loses HP', () => {
+test('DAANAV_ATTACK_RECOVERY_MS is 2500ms and calculateDaanavAttackRecoveryMs adds randomized delay across Easy, Medium, and Hard difficulties', () => {
+  assert.equal(DAANAV_ATTACK_RECOVERY_MS, 2500);
+
+  const minMedium = calculateDaanavAttackRecoveryMs('medium', () => 0);
+  const maxMedium = calculateDaanavAttackRecoveryMs('medium', () => 1);
+  assert.equal(minMedium, 2500);
+  assert.ok(maxMedium > minMedium);
+
+  const minEasy = calculateDaanavAttackRecoveryMs('easy', () => 0);
+  assert.ok(minEasy > minMedium);
+
+  assert.ok(
+    DIFFICULTY_CONFIGS.easy.baseComboDurationMs > DIFFICULTY_CONFIGS.medium.baseComboDurationMs
+  );
+  assert.ok(
+    DIFFICULTY_CONFIGS.medium.baseComboDurationMs > DIFFICULTY_CONFIGS.hard.baseComboDurationMs
+  );
+});
+
+test('calculateComboDurationMs starts at 4200ms on Medium and decreases gradually as Daanav loses HP, with post-attack restraint grace bonus', () => {
   assert.equal(calculateComboDurationMs(100, 0), BASE_COMBO_DURATION_MS);
   const midDuration = calculateComboDurationMs(50, 2);
   assert.ok(midDuration < BASE_COMBO_DURATION_MS);
   assert.ok(midDuration > MIN_COMBO_DURATION_MS);
   const lowDuration = calculateComboDurationMs(0, 10);
   assert.equal(lowDuration, MIN_COMBO_DURATION_MS);
+
+  const gracedDuration = calculateComboDurationWithGraceMs(100, 0, 1);
+  assert.equal(gracedDuration, BASE_COMBO_DURATION_MS + POST_ATTACK_GRACE_BONUS_MS);
 });
 
-test('calculateSpellDamage rewards streak and fast cast speed', () => {
-  const baseDmg = calculateSpellDamage(0, 0);
-  const fastStreakDmg = calculateSpellDamage(4, 0.9);
+test('calculateSpellDamage rewards streak, fast cast speed, and scales with difficulty', () => {
+  const baseDmg = calculateSpellDamage(0, 0, 'medium');
+  const fastStreakDmg = calculateSpellDamage(4, 0.9, 'medium');
+  const easyDmg = calculateSpellDamage(0, 0, 'easy');
   assert.equal(baseDmg, 18);
   assert.ok(fastStreakDmg > baseDmg);
+  assert.ok(easyDmg > baseDmg);
 });
 
-test('calculateDaanavAttackDamage increases when Daanav is enraged below 40% HP', () => {
-  assert.equal(calculateDaanavAttackDamage(80), 18);
-  assert.equal(calculateDaanavAttackDamage(35), 22);
+test('calculateDaanavAttackDamage increases when Daanav is enraged below 40% HP and scales with difficulty', () => {
+  assert.equal(calculateDaanavAttackDamage(80, 'medium'), 18);
+  assert.equal(calculateDaanavAttackDamage(35, 'medium'), 22);
+  assert.ok(calculateDaanavAttackDamage(80, 'easy') < calculateDaanavAttackDamage(80, 'medium'));
+  assert.ok(calculateDaanavAttackDamage(80, 'hard') > calculateDaanavAttackDamage(80, 'medium'));
 });
 
 test('isComboMatched and isExplicitWrongCombo evaluate hand pairs accurately', () => {

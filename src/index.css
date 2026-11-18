@@ -79,24 +79,6 @@
   }
 }
 
-@keyframes hand-idle-sway-left {
-  0%, 100% {
-    transform: translate3d(0px, 0px, 0) rotate(0deg);
-  }
-  50% {
-    transform: translate3d(3px, -5px, 0) rotate(1deg);
-  }
-}
-
-@keyframes hand-idle-sway-right {
-  0%, 100% {
-    transform: translate3d(0px, 0px, 0) rotate(0deg);
-  }
-  50% {
-    transform: translate3d(-3px, -5px, 0) rotate(-1deg);
-  }
-}
-
 @keyframes shout-pop {
   0% {
     opacity: 0;
@@ -136,13 +118,11 @@
 }
 
 .animate-hand-left {
-  will-change: transform;
-  animation: hand-idle-sway-left 2.8s ease-in-out infinite;
+  transform: translate3d(0, 0, 0);
 }
 
 .animate-hand-right {
-  will-change: transform;
-  animation: hand-idle-sway-right 2.8s ease-in-out infinite;
+  transform: translate3d(0, 0, 0);
 }
 
 .animate-shout {

@@ -1,14 +1,17 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
+import { DaanavPose } from '../game/rules';
 import {
   createSpellParticlePool,
   SpellPoolState,
   stepSpellParticles,
+  triggerDaanavHurtBloodMist,
   triggerSpellCastBurst,
 } from '../game/spellParticles';
 
 interface SpellCastOverlayProps {
   spellTrigger: number;
   streak: number;
+  daanavPose?: DaanavPose;
 }
 
 const CANVAS_W = 720;
@@ -17,25 +20,22 @@ const CANVAS_H = 450;
 export const SpellCastOverlay: React.FC<SpellCastOverlayProps> = ({
   spellTrigger,
   streak,
+  daanavPose = 'IDLE',
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const poolRef = useRef<SpellPoolState | null>(null);
   const lastTriggerRef = useRef<number>(0);
+  const prevPoseRef = useRef<DaanavPose>('IDLE');
   const loopTimerRef = useRef<number | null>(null);
 
   if (!poolRef.current) {
     poolRef.current = createSpellParticlePool();
   }
 
-  useEffect(() => {
+  const startRenderLoop = useCallback(() => {
     const canvas = canvasRef.current;
     const pool = poolRef.current;
     if (!canvas || !pool) return;
-
-    if (spellTrigger === 0 || spellTrigger === lastTriggerRef.current) return;
-    lastTriggerRef.current = spellTrigger;
-
-    triggerSpellCastBurst(pool, CANVAS_W, CANVAS_H, streak);
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -54,10 +54,33 @@ export const SpellCastOverlay: React.FC<SpellCastOverlayProps> = ({
       const activeCount = stepSpellParticles(pool);
 
       ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
+      const particles = pool.particles;
+
+      // 1. Render Blood-Mist & Sacrificial Smoke Clouds (source-over volumetric puffs around Daanav)
+      ctx.save();
+      ctx.globalCompositeOperation = 'source-over';
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+        if (!p.active || p.alpha <= 0.01) continue;
+        if (p.kind !== 'blood_mist' && p.kind !== 'smoke') continue;
+
+        ctx.globalAlpha = p.alpha;
+        const grad = ctx.createRadialGradient(p.x, p.y, p.size * 0.12, p.x, p.y, p.size);
+        grad.addColorStop(0, p.coreColor);
+        grad.addColorStop(0.52, p.color);
+        grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+
+      // 2. Render Additive Magical Energy Beams, Rings, Streaks, Orbs & Sparks
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
 
-      // 1. Central Magical Vortex Flash & Twin Hand-to-Center Channeling Beams
       if (pool.beamProgress > 0.02) {
         const bp = pool.beamProgress;
 
@@ -113,11 +136,10 @@ export const SpellCastOverlay: React.FC<SpellCastOverlayProps> = ({
         ctx.fill();
       }
 
-      // 2. Render Active Spell Particles (Rings, Streaks, Orbs, Sparks)
-      const particles = pool.particles;
       for (let i = 0; i < particles.length; i++) {
         const p = particles[i];
         if (!p.active || p.alpha <= 0.01) continue;
+        if (p.kind === 'blood_mist' || p.kind === 'smoke') continue;
 
         ctx.globalAlpha = p.alpha;
 
@@ -126,14 +148,12 @@ export const SpellCastOverlay: React.FC<SpellCastOverlayProps> = ({
           ctx.translate(p.x, p.y);
           ctx.rotate(p.rotation);
 
-          // Outer Yantra Shockwave Ring
           ctx.strokeStyle = p.color;
           ctx.lineWidth = 3 * p.alpha;
           ctx.beginPath();
           ctx.arc(0, 0, p.size, 0, Math.PI * 2);
           ctx.stroke();
 
-          // Sacred 6-Point Star / Hexagram inscribed inside the expanding ring
           const r = p.size * 0.86;
           ctx.strokeStyle = p.coreColor;
           ctx.lineWidth = 1.6 * p.alpha;
@@ -152,7 +172,6 @@ export const SpellCastOverlay: React.FC<SpellCastOverlayProps> = ({
           ctx.stroke();
           ctx.restore();
         } else if (p.kind === 'streak') {
-          // High-velocity magical energy bolt with tail
           const tailX = p.x - p.vx * 2.6;
           const tailY = p.y - p.vy * 2.6;
 
@@ -171,7 +190,6 @@ export const SpellCastOverlay: React.FC<SpellCastOverlayProps> = ({
           ctx.lineTo(p.x, p.y);
           ctx.stroke();
         } else if (p.kind === 'orb') {
-          // Glowing Mantra Energy Orb
           ctx.fillStyle = p.color;
           ctx.beginPath();
           ctx.arc(p.x, p.y, p.size * 1.4, 0, Math.PI * 2);
@@ -182,7 +200,6 @@ export const SpellCastOverlay: React.FC<SpellCastOverlayProps> = ({
           ctx.arc(p.x, p.y, p.size * 0.6, 0, Math.PI * 2);
           ctx.fill();
         } else {
-          // Diamond / Star Spark
           ctx.save();
           ctx.translate(p.x, p.y);
           ctx.rotate(p.rotation);
@@ -210,14 +227,39 @@ export const SpellCastOverlay: React.FC<SpellCastOverlayProps> = ({
     };
 
     renderStep();
+  }, []);
 
+  useEffect(() => {
+    const pool = poolRef.current;
+    if (!pool) return;
+    if (spellTrigger === 0 || spellTrigger === lastTriggerRef.current) return;
+    lastTriggerRef.current = spellTrigger;
+
+    triggerSpellCastBurst(pool, CANVAS_W, CANVAS_H, streak);
+    startRenderLoop();
+  }, [spellTrigger, streak, startRenderLoop]);
+
+  // Trigger Blood-Mist & Smoke specifically when Daanav enters the `daanav-hurt` (HURT) state
+  useEffect(() => {
+    const pool = poolRef.current;
+    const prevPose = prevPoseRef.current;
+    prevPoseRef.current = daanavPose;
+
+    if (!pool) return;
+    if (daanavPose === 'HURT' && prevPose !== 'HURT') {
+      triggerDaanavHurtBloodMist(pool, CANVAS_W, CANVAS_H);
+      startRenderLoop();
+    }
+  }, [daanavPose, startRenderLoop]);
+
+  useEffect(() => {
     return () => {
       if (loopTimerRef.current !== null) {
         clearTimeout(loopTimerRef.current);
         loopTimerRef.current = null;
       }
     };
-  }, [spellTrigger, streak]);
+  }, []);
 
   return (
     <canvas

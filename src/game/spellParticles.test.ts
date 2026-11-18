@@ -3,9 +3,16 @@ import assert from 'node:assert/strict';
 import {
   createSpellParticlePool,
   triggerSpellCastBurst,
+  triggerDaanavHurtBloodMist,
   stepSpellParticles,
   SPELL_POOL_CAPACITY,
 } from './spellParticles';
+import {
+  createScreenShakeState,
+  triggerScreenShakeImpulse,
+  stepScreenShake,
+  formatScreenShakeTransform,
+} from './screenShake';
 
 test('createSpellParticlePool initializes fixed-capacity inactive particle pool', () => {
   const pool = createSpellParticlePool();
@@ -35,6 +42,24 @@ test('triggerSpellCastBurst spawns rings, streaks, orbs, and sparks emanating fr
   assert.ok(sparks.length > 10);
 });
 
+test('triggerDaanavHurtBloodMist spawns billowing blood_mist and smoke particles when Daanav is hit', () => {
+  const pool = createSpellParticlePool();
+  const spawned = triggerDaanavHurtBloodMist(pool, 720, 450, () => 0.5);
+  assert.equal(spawned, 30);
+
+  const active = pool.particles.filter((p) => p.active);
+  const bloodMist = active.filter((p) => p.kind === 'blood_mist');
+  const smoke = active.filter((p) => p.kind === 'smoke');
+
+  assert.equal(bloodMist.length, 20);
+  assert.equal(smoke.length, 10);
+
+  const firstMist = bloodMist[0];
+  const initialSize = firstMist.size;
+  stepSpellParticles(pool);
+  assert.ok(firstMist.size > initialSize, 'Blood-mist plume should expand as it billows');
+});
+
 test('stepSpellParticles advances positions toward Daanav and expires particles cleanly', () => {
   const pool = createSpellParticlePool();
   triggerSpellCastBurst(pool, 720, 450, 1, () => 0.5);
@@ -55,4 +80,31 @@ test('stepSpellParticles advances positions toward Daanav and expires particles 
   const remaining = stepSpellParticles(pool);
   assert.equal(remaining, 0);
   assert.equal(pool.flashIntensity, 0);
+});
+
+test('Spring-based screen shake oscillates with underdamped physics and settles cleanly to rest', () => {
+  const shake = createScreenShakeState();
+  assert.equal(shake.active, false);
+
+  triggerScreenShakeImpulse(shake, 1.2, 1);
+  assert.equal(shake.active, true);
+  assert.ok(shake.x > 0);
+  assert.ok(shake.vx < 0);
+
+  // Step through oscillation and verify sign reversal (spring rebound)
+  let sawNegativeX = false;
+  for (let i = 0; i < 60; i++) {
+    stepScreenShake(shake, 0.016);
+    if (shake.x < -1) {
+      sawNegativeX = true;
+    }
+  }
+  assert.equal(sawNegativeX, true, 'Spring must rebound across equilibrium');
+
+  // Step until completely damped
+  for (let i = 0; i < 120; i++) {
+    stepScreenShake(shake, 0.016);
+  }
+  assert.equal(shake.active, false);
+  assert.equal(formatScreenShakeTransform(shake), 'translate3d(0px, 0px, 0) rotate(0deg)');
 });
