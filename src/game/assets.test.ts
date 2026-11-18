@@ -9,14 +9,14 @@ import {
 import { MUDRAS } from './rules';
 
 test('All 10 photorealistic asset paths are mapped to local /assets/aistudio/ files', () => {
-  assert.ok(CAVE_BACKGROUND_URL.startsWith('/assets/aistudio/'));
-  assert.ok(DAANAV_SPRITE_URLS.IDLE.startsWith('/assets/aistudio/'));
-  assert.ok(DAANAV_SPRITE_URLS.HURT.startsWith('/assets/aistudio/'));
-  assert.ok(DAANAV_SPRITE_URLS.ATTACKING.startsWith('/assets/aistudio/'));
+  assert.ok(CAVE_BACKGROUND_URL.includes('/assets/aistudio/'));
+  assert.ok(DAANAV_SPRITE_URLS.IDLE.includes('/assets/aistudio/'));
+  assert.ok(DAANAV_SPRITE_URLS.HURT.includes('/assets/aistudio/'));
+  assert.ok(DAANAV_SPRITE_URLS.ATTACKING.includes('/assets/aistudio/'));
 
   for (const m of MUDRAS) {
     assert.ok(
-      HAND_SPRITE_URLS[m.id].startsWith('/assets/aistudio/'),
+      HAND_SPRITE_URLS[m.id].includes('/assets/aistudio/'),
       `Missing hand sprite for ${m.id}`
     );
   }

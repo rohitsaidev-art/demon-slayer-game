@@ -1,20 +1,31 @@
 import { DaanavPose, MudraId } from './rules';
 
-export const CAVE_BACKGROUND_URL = '/assets/aistudio/cave_background__1__0b10090d.png';
+const BASE_URL =
+  typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.BASE_URL
+    ? import.meta.env.BASE_URL
+    : '/';
+
+const getAssetUrl = (assetPath: string) => {
+  const cleanBase = BASE_URL.endsWith('/') ? BASE_URL : `${BASE_URL}/`;
+  const cleanPath = assetPath.startsWith('/') ? assetPath.slice(1) : assetPath;
+  return `${cleanBase}${cleanPath}`;
+};
+
+export const CAVE_BACKGROUND_URL = getAssetUrl('assets/aistudio/cave_background__1__0b10090d.png');
 
 export const DAANAV_SPRITE_URLS: Record<DaanavPose, string> = {
-  IDLE: '/assets/aistudio/Horned_Demon_King_in_Gold_Ornaments_3d7c9beb.png',
-  HURT: '/assets/aistudio/Anguished_Horned_Demon_Recoiling_de6fff3b.png',
-  ATTACKING: '/assets/aistudio/Horned_Demon_s_Golden_Rampage_de8702f4.png',
+  IDLE: getAssetUrl('assets/aistudio/Horned_Demon_King_in_Gold_Ornaments_3d7c9beb.png'),
+  HURT: getAssetUrl('assets/aistudio/Anguished_Horned_Demon_Recoiling_de6fff3b.png'),
+  ATTACKING: getAssetUrl('assets/aistudio/Horned_Demon_s_Golden_Rampage_de8702f4.png'),
 };
 
 export const HAND_SPRITE_URLS: Record<MudraId, string> = {
-  Open_Palm: '/assets/aistudio/hand_palm_7f1d28ac.png',
-  Closed_Fist: '/assets/aistudio/hand_fist_7b0d9c64.png',
-  Victory: '/assets/aistudio/hand_victory_d67a3628.png',
-  ILoveYou: '/assets/aistudio/hand_horns_e0c45b28.png',
-  Thumb_Up: '/assets/aistudio/hand_thumb_ed359664.png',
-  Pointing_Up: '/assets/aistudio/hand_point_bb4bb60c.png',
+  Open_Palm: getAssetUrl('assets/aistudio/hand_palm_7f1d28ac.png'),
+  Closed_Fist: getAssetUrl('assets/aistudio/hand_fist_7b0d9c64.png'),
+  Victory: getAssetUrl('assets/aistudio/hand_victory_d67a3628.png'),
+  ILoveYou: getAssetUrl('assets/aistudio/hand_horns_e0c45b28.png'),
+  Thumb_Up: getAssetUrl('assets/aistudio/hand_thumb_ed359664.png'),
+  Pointing_Up: getAssetUrl('assets/aistudio/hand_point_bb4bb60c.png'),
 };
 
 export interface AlphaCheckResult {
