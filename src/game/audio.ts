@@ -106,6 +106,7 @@ const SFX_CLIP_METADATA: Record<SfxClipId, SfxClipMetadata> = {
   tantrik_punch_hit: { gainScale: 0.74, minIntervalMs: 320 },
   ritual_choir_shine: { gainScale: 0.54, minIntervalMs: 800 },
   rakshasa_grunt_backup: { gainScale: 0.72, minIntervalMs: 450 },
+  stone_avalanche: { gainScale: 0.68, minIntervalMs: 450 },
 };
 
 type DialoguePriority = 'gameplay' | 'intro' | 'outcome';
@@ -223,6 +224,7 @@ export class TantrikAudioManager {
     tantrik_punch_hit: 0,
     ritual_choir_shine: 0,
     rakshasa_grunt_backup: 0,
+    stone_avalanche: 0,
   };
   private sfxHistory: SfxClipId[] = [];
 
@@ -1249,6 +1251,7 @@ export class TantrikAudioManager {
     };
 
     window.addEventListener('pointerdown', onFirstInteraction, { passive: true });
+    window.addEventListener('click', onFirstInteraction, { passive: true });
     window.addEventListener('keydown', onFirstInteraction, { passive: true });
     window.addEventListener('touchstart', onFirstInteraction, { passive: true });
   }
@@ -1768,7 +1771,7 @@ export class TantrikAudioManager {
   }
 }
 
-export const audioManager = new TantrikAudioManager({ enableWebAudioReverb: true });
+export const audioManager = new TantrikAudioManager({ enableWebAudioReverb: false });
 export const audioEngine = audioManager;
 
 if (typeof window !== 'undefined') {

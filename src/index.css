@@ -129,3 +129,62 @@
   will-change: transform, opacity;
   animation: shout-pop 0.65s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+
+/* Dynamic Subterranean Depth-Fog Overlay Animations (Scales with Daanav HP%) */
+@keyframes depth-fog-pulse {
+  0%, 100% {
+    opacity: 0.42;
+    transform: translate3d(-1.5%, 0%, 0) scale(1.02);
+  }
+  50% {
+    opacity: 0.78;
+    transform: translate3d(1.5%, -1.5%, 0) scale(1.06);
+  }
+}
+
+@keyframes depth-fog-critical-pulse {
+  0%, 100% {
+    opacity: 0.58;
+    transform: translate3d(-2%, 0.5%, 0) scale(1.03);
+  }
+  50% {
+    opacity: 0.96;
+    transform: translate3d(2%, -2%, 0) scale(1.09);
+  }
+}
+
+@keyframes idle-taunt-fade {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 6px, 0) scale(0.95);
+  }
+  15%, 85% {
+    opacity: 1;
+    transform: translate3d(0, 0px, 0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(0, -4px, 0) scale(0.98);
+  }
+}
+
+.animate-depth-fog-calm {
+  will-change: transform, opacity;
+  animation: depth-fog-pulse 6.4s ease-in-out infinite;
+}
+
+.animate-depth-fog-ominous {
+  will-change: transform, opacity;
+  animation: depth-fog-pulse 3.6s ease-in-out infinite;
+}
+
+.animate-depth-fog-critical {
+  will-change: transform, opacity;
+  animation: depth-fog-critical-pulse 1.9s ease-in-out infinite;
+}
+
+.animate-idle-taunt {
+  will-change: transform, opacity;
+  animation: idle-taunt-fade 3.1s ease-in-out forwards;
+}
+

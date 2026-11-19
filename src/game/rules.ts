@@ -324,3 +324,184 @@ export function evaluateMatchOutcome(
   if (tantrikHp <= 0) return 'defeat';
   return 'ongoing';
 }
+
+// ==================== PHASE 2 ESCALATION, ELEMENTAL SIDDHIS, PRANA & ABHAYA WARD ====================
+
+export const DAANAV_PHASE2_HP_THRESHOLD = 50;
+export const MAHAMUDRA_BONUS_DAMAGE = 16;
+export const MAHAMUDRA_HEAL_HP = 10;
+export const MAHAMUDRA_STUN_MS = 1200;
+export const ABHAYA_WARD_DAMAGE_MULTIPLIER = 0.3;
+export const ABHAYA_WARD_COOLDOWN_MS = 10000;
+
+export type ElementalSiddhiType = 'agni' | 'prana' | 'vajra';
+
+export interface MudraSynergyResult {
+  type: ElementalSiddhiType;
+  mantraTitle: string;
+  effectLabel: string;
+  bonusDamage: number;
+  healHp: number;
+  stunBonusMs: number;
+}
+
+export function isDaanavPhase2Unbound(daanavHp: number): boolean {
+  return daanavHp > 0 && daanavHp <= DAANAV_PHASE2_HP_THRESHOLD;
+}
+
+/**
+ * Evaluates the elemental Tantrik Siddhi synergy and Sanskrit mantra callout for a two-handed Mudra combo:
+ * - Agni (Fire): Triggered when the combo includes Karana (`ILoveYou`) or Tarjani (`Pointing_Up`) -> +5 bonus burn damage
+ * - Prana (Vital Life): Triggered when the combo includes Abhaya (`Open_Palm`) or Prana (`Victory`) -> +6 HP restored
+ * - Vajra (Thunderbolt): Triggered when composed of Mushti (`Closed_Fist`) or Shikhara (`Thumb_Up`) -> +850ms stun on next gauge
+ */
+export function evaluateMudraSynergy(combo: MudraCombo): MudraSynergyResult {
+  const leftWord = MUDRA_BY_ID[combo.left].sanskritName.split(' ')[0].toUpperCase();
+  const rightWord = MUDRA_BY_ID[combo.right].sanskritName.split(' ')[0].toUpperCase();
+  const mantraTitle = `${leftWord}–${rightWord} SIDDHI!`;
+
+  const hasAgni =
+    combo.left === 'ILoveYou' ||
+    combo.right === 'ILoveYou' ||
+    combo.left === 'Pointing_Up' ||
+    combo.right === 'Pointing_Up';
+
+  const hasPrana =
+    combo.left === 'Open_Palm' ||
+    combo.right === 'Open_Palm' ||
+    combo.left === 'Victory' ||
+    combo.right === 'Victory';
+
+  if (hasAgni && hasPrana) {
+    // Mixed Agni + Prana: alternate or grant Prana heal if left is Prana, else Agni burn
+    if (combo.left === 'Open_Palm' || combo.left === 'Victory') {
+      return {
+        type: 'prana',
+        mantraTitle,
+        effectLabel: 'PRANA SIDDHI · +6 HP HEAL',
+        bonusDamage: 0,
+        healHp: 6,
+        stunBonusMs: 0,
+      };
+    }
+    return {
+      type: 'agni',
+      mantraTitle,
+      effectLabel: 'AGNI SIDDHI · +5 BURN DMG',
+      bonusDamage: 5,
+      healHp: 0,
+      stunBonusMs: 0,
+    };
+  }
+
+  if (hasAgni) {
+    return {
+      type: 'agni',
+      mantraTitle,
+      effectLabel: 'AGNI SIDDHI · +5 BURN DMG',
+      bonusDamage: 5,
+      healHp: 0,
+      stunBonusMs: 0,
+    };
+  }
+
+  if (hasPrana) {
+    return {
+      type: 'prana',
+      mantraTitle,
+      effectLabel: 'PRANA SIDDHI · +6 HP HEAL',
+      bonusDamage: 0,
+      healHp: 6,
+      stunBonusMs: 0,
+    };
+  }
+
+  return {
+    type: 'vajra',
+    mantraTitle,
+    effectLabel: 'VAJRA SIDDHI · +0.85s STUN',
+    bonusDamage: 0,
+    healHp: 0,
+    stunBonusMs: 850,
+  };
+}
+
+export function calculatePranaGain(currentPrana: number, streak: number): number {
+  const gain = streak >= 2 ? 40 : 34;
+  return Math.max(0, Math.min(100, currentPrana + gain));
+}
+
+export function calculateParriedDaanavDamage(rawDamage: number): number {
+  return Math.max(2, Math.round(rawDamage * ABHAYA_WARD_DAMAGE_MULTIPLIER));
+}
+
+export type RitualRank = 'S' | 'A' | 'B' | 'C';
+
+export function calculateRitualRank(params: {
+  outcome: 'victory' | 'defeat';
+  tantrikHpLeft: number;
+  bestStreak: number;
+  accuracyPct: number;
+}): RitualRank {
+  if (params.outcome === 'defeat') {
+    return params.bestStreak >= 3 ? 'B' : 'C';
+  }
+  if (params.tantrikHpLeft >= 75 && params.bestStreak >= 3 && params.accuracyPct >= 80) {
+    return 'S';
+  }
+  if (params.tantrikHpLeft >= 45 || params.bestStreak >= 3) {
+    return 'A';
+  }
+  return 'B';
+}
+
+export type DaanavTauntTier = 'high' | 'mid' | 'low';
+
+export const DAANAV_IDLE_TAUNTS: Record<DaanavTauntTier, readonly string[]> = {
+  high: [
+    'Your mudras are weak, mortal!',
+    'Bow before the Rakshasa King!',
+    'This sanctum shall be your tomb!',
+    'Foolish Tantrik, your soul is mine!',
+  ],
+  mid: [
+    'Enough of your sacred seals!',
+    'The temple stones will bleed!',
+    'Your mantra cannot bind me!',
+    'Feel the wrath of the abyss!',
+  ],
+  low: [
+    'I will not be banished again!',
+    'Burn in eternal darkness!',
+    'Curse your Rudraksha seals!',
+    'I shall drag you into the void!',
+  ],
+} as const;
+
+export function getDaanavTauntTier(daanavHp: number): DaanavTauntTier {
+  if (daanavHp > 70) return 'high';
+  if (daanavHp > 35) return 'mid';
+  return 'low';
+}
+
+/**
+ * Selects a randomized, health-tiered taunt for Daanav during the 'IDLE' state,
+ * avoiding repeating the exact same taunt consecutively.
+ */
+export function selectDaanavIdleTaunt(
+  daanavHp: number,
+  previousTaunt: string | null = null,
+  rng: () => number = Math.random
+): string {
+  const tier = getDaanavTauntTier(daanavHp);
+  const pool = DAANAV_IDLE_TAUNTS[tier];
+  const clampedRand = Math.max(0, Math.min(0.9999, rng()));
+  const idx = Math.floor(clampedRand * pool.length);
+  const chosen = pool[idx] ?? pool[0];
+  if (previousTaunt && chosen === previousTaunt && pool.length > 1) {
+    return pool[(idx + 1) % pool.length];
+  }
+  return chosen;
+}
+
+

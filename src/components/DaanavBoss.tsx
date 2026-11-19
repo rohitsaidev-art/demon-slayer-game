@@ -1,5 +1,9 @@
-import React, { useEffect } from 'react';
-import { DaanavPose } from '../game/rules';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  DaanavPose,
+  getDaanavTauntTier,
+  selectDaanavIdleTaunt,
+} from '../game/rules';
 import { DAANAV_SPRITE_URLS, preloadGameAssets } from '../game/assets';
 
 interface DaanavBossProps {
@@ -15,13 +19,53 @@ export const DaanavBoss: React.FC<DaanavBossProps> = ({
   shoutKey,
   hp,
 }) => {
+  const [idleTaunt, setIdleTaunt] = useState<string>(() =>
+    selectDaanavIdleTaunt(hp, null)
+  );
+  const [idleTauntKey, setIdleTauntKey] = useState<number>(1);
+  const lastTauntRef = useRef<string>(idleTaunt);
+  const hpRef = useRef<number>(hp);
+
   useEffect(() => {
     preloadGameAssets();
   }, []);
 
+  useEffect(() => {
+    const prevTier = getDaanavTauntTier(hpRef.current);
+    const nextTier = getDaanavTauntTier(hp);
+    hpRef.current = hp;
+
+    if (pose === 'IDLE' && prevTier !== nextTier) {
+      const next = selectDaanavIdleTaunt(hp, lastTauntRef.current);
+      lastTauntRef.current = next;
+      setIdleTaunt(next);
+      setIdleTauntKey((k) => k + 1);
+    }
+  }, [hp, pose]);
+
+  useEffect(() => {
+    if (pose !== 'IDLE') return;
+
+    const initial = selectDaanavIdleTaunt(hpRef.current, lastTauntRef.current);
+    lastTauntRef.current = initial;
+    setIdleTaunt(initial);
+    setIdleTauntKey((k) => k + 1);
+
+    const intervalId = window.setInterval(() => {
+      const next = selectDaanavIdleTaunt(hpRef.current, lastTauntRef.current);
+      lastTauntRef.current = next;
+      setIdleTaunt(next);
+      setIdleTauntKey((k) => k + 1);
+    }, 3200);
+
+    return () => window.clearInterval(intervalId);
+  }, [pose]);
+
   const isHurt = pose === 'HURT';
   const isAttacking = pose === 'ATTACKING';
-  const isEnraged = hp <= 40;
+  const isIdle = pose === 'IDLE';
+  const isEnraged = hp > 0 && hp <= 50;
+  const tauntTier = getDaanavTauntTier(hp);
 
   const containerAnimClass = isAttacking
     ? 'animate-daanav-attack'
@@ -32,11 +76,11 @@ export const DaanavBoss: React.FC<DaanavBossProps> = ({
   // Pure additive-style radial backlight with zero black color stops so no dark vignette
   // or sharp corners ever appear around Daanav's legs when he leaps forward.
   const auraGradient = isAttacking
-    ? 'radial-gradient(circle at 50% 48%, rgba(220, 38, 38, 0.42) 0%, rgba(153, 27, 27, 0.16) 44%, rgba(0, 0, 0, 0) 70%)'
+    ? 'radial-gradient(circle at 50% 48%, rgba(220, 38, 38, 0.44) 0%, rgba(153, 27, 27, 0.18) 44%, rgba(0, 0, 0, 0) 70%)'
     : isHurt
     ? 'radial-gradient(circle at 50% 45%, rgba(245, 245, 244, 0.55) 0%, rgba(185, 28, 28, 0.28) 46%, rgba(0, 0, 0, 0) 72%)'
     : isEnraged
-    ? 'radial-gradient(circle at 50% 48%, rgba(185, 28, 28, 0.24) 0%, rgba(185, 28, 28, 0) 68%)'
+    ? 'radial-gradient(circle at 50% 48%, rgba(239, 68, 68, 0.34) 0%, rgba(212, 175, 55, 0.15) 42%, rgba(185, 28, 28, 0) 70%)'
     : 'none';
 
   return (
@@ -44,14 +88,15 @@ export const DaanavBoss: React.FC<DaanavBossProps> = ({
       className="relative flex flex-col items-center justify-center pointer-events-none select-none z-10"
       data-testid="daanav-boss"
       data-pose={pose}
+      data-phase2={isEnraged ? 'true' : 'false'}
     >
-      {/* Chiseled Floating Combat Shout Banner ("STOP!", "PAIN!", "AGH!", "ENOUGH!", "BLOOD!", "BURN!", "DIE!") */}
+      {/* Chiseled Floating Combat Shout Banner (HURT / ATTACKING) or Dynamic Health-Tiered IDLE Taunt */}
       <div
         className={`h-14 flex items-end justify-center transition-transform duration-150 ${
           isAttacking ? '-translate-y-10 mb-3' : 'mb-1'
         }`}
       >
-        {shoutText && (
+        {!isIdle && shoutText ? (
           <div
             key={shoutKey}
             className="animate-shout font-display font-black tracking-widest text-3xl md:text-5xl text-[#F87171] uppercase"
@@ -62,6 +107,23 @@ export const DaanavBoss: React.FC<DaanavBossProps> = ({
           >
             {shoutText}
           </div>
+        ) : (
+          isIdle && (
+            <div
+              key={idleTauntKey}
+              data-testid="daanav-idle-taunt"
+              data-taunt-tier={tauntTier}
+              className={`animate-idle-taunt px-4 py-1 rounded border bg-[#090D0C]/90 shadow-[0_6px_18px_rgba(0,0,0,0.9)] font-display font-bold text-xs md:text-sm tracking-wider uppercase text-center whitespace-nowrap ${
+                tauntTier === 'low'
+                  ? 'border-[#EF4444] text-[#FCA5A5]'
+                  : tauntTier === 'mid'
+                  ? 'border-[#F59E0B] text-[#FDE68A]'
+                  : 'border-[#8C6D32] text-[#E5D5BE]'
+              }`}
+            >
+              “{idleTaunt}”
+            </div>
+          )
         )}
       </div>
 

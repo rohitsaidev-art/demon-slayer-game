@@ -4,9 +4,10 @@ import {
   DifficultyLevel,
   GameState,
   MUDRAS,
+  RitualRank,
 } from '../game/rules';
 import { HAND_SPRITE_URLS } from '../game/assets';
-import { Camera, Keyboard, Play, RotateCcw, ShieldAlert, Sparkles } from 'lucide-react';
+import { BookOpen, Camera, Keyboard, Play, RotateCcw, ShieldAlert, Sparkles } from 'lucide-react';
 
 export interface RunStatsSnapshot {
   outcome: 'victory' | 'defeat';
@@ -16,6 +17,10 @@ export interface RunStatsSnapshot {
   tantrikHpLeft: number;
   daanavHpLeft: number;
   difficulty?: DifficultyLevel;
+  fastestCastSec?: number;
+  accuracyPct?: number;
+  parriesCount?: number;
+  ritualRank?: RitualRank;
 }
 
 interface GameModalsProps {
@@ -24,6 +29,7 @@ interface GameModalsProps {
   difficulty: DifficultyLevel;
   onSelectDifficulty: (difficulty: DifficultyLevel) => void;
   onStartGame: () => void;
+  onStartPractice?: () => void;
   onResumeGame: () => void;
   onRestartGame: () => void;
   onReturnToTitle: () => void;
@@ -68,6 +74,7 @@ export const GameModals: React.FC<GameModalsProps> = ({
   difficulty,
   onSelectDifficulty,
   onStartGame,
+  onStartPractice,
   onResumeGame,
   onRestartGame,
   onReturnToTitle,
@@ -163,7 +170,7 @@ export const GameModals: React.FC<GameModalsProps> = ({
           <div className="mb-5">
             <div className="flex items-center justify-between text-xs uppercase tracking-widest text-[#B5A388] mb-2 px-1">
               <span>Sacred 6-Mudra Temple Codex</span>
-              <span>Live Webcam · Keyboard Fallback</span>
+              <span>Agni Burn · Prana Heal · Vajra Stun</span>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2.5">
               {MUDRAS.map((m) => (
@@ -254,8 +261,8 @@ export const GameModals: React.FC<GameModalsProps> = ({
           </div>
 
           {/* Webcam Readiness & Primary Start Actions */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-3 border-t border-[#3B2E19]">
-            <div className="flex items-center gap-3 text-xs text-[#C7B69E]">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-[#3B2E19]">
+            <div className="flex items-center gap-2.5 text-xs text-[#C7B69E]">
               {cameraStatus === 'ready' ? (
                 <span className="flex items-center gap-2 text-amber-300 font-medium">
                   <Camera className="w-4 h-4 shrink-0" />
@@ -280,24 +287,42 @@ export const GameModals: React.FC<GameModalsProps> = ({
               )}
             </div>
 
-            <button
-              type="button"
-              data-start="true"
-              onClick={(e) => {
-                e.currentTarget.blur();
-                onStartGame();
-              }}
-              className="w-full sm:w-auto px-8 py-3.5 rounded bg-[#991B1B] hover:bg-[#B91C1C] text-[#FEF2F2] font-display font-bold text-base tracking-wider uppercase border-2 border-[#D4AF37] shadow-[0_0_24px_rgba(185,28,28,0.6)] flex items-center justify-center gap-2.5 transition-transform active:scale-95 cursor-pointer whitespace-nowrap shrink-0"
-            >
-              <Play className="w-5 h-5 fill-current text-[#FBBF24]" />
-              Enter The Cavern
-            </button>
+            <div className="w-full sm:w-auto flex flex-col sm:flex-row items-center gap-2.5">
+              {onStartPractice && (
+                <button
+                  type="button"
+                  data-testid="start-practice-btn"
+                  onClick={(e) => {
+                    e.currentTarget.blur();
+                    onStartPractice();
+                  }}
+                  className="w-full sm:w-auto px-4 py-3 rounded border border-[#8C6D32] bg-[#131B18] hover:bg-[#1C2824] text-[#FDE68A] font-display font-bold text-xs tracking-wider uppercase flex items-center justify-center gap-2 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                  title="Practice all 6 Mudras without taking damage"
+                >
+                  <BookOpen className="w-4 h-4 text-[#D4AF37]" />
+                  Sadhana Dojo (Practice)
+                </button>
+              )}
+
+              <button
+                type="button"
+                data-start="true"
+                onClick={(e) => {
+                  e.currentTarget.blur();
+                  onStartGame();
+                }}
+                className="w-full sm:w-auto px-8 py-3.5 rounded bg-[#991B1B] hover:bg-[#B91C1C] text-[#FEF2F2] font-display font-bold text-base tracking-wider uppercase border-2 border-[#D4AF37] shadow-[0_0_24px_rgba(185,28,28,0.6)] flex items-center justify-center gap-2.5 transition-transform active:scale-95 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <Play className="w-5 h-5 fill-current text-[#FBBF24]" />
+                Enter The Cavern
+              </button>
+            </div>
           </div>
 
           {/* Single Flat Borderless Control Hint Line */}
           <div className="mt-3.5 text-center text-xs text-[#8C7A65]">
             <Keyboard className="w-3.5 h-3.5 inline-block mr-1.5 -mt-0.5" />
-            Hold Both Hands to Webcam · Keys 1–6 Left Hand · Keys 7–0 / - / = Right Hand · Space Match Combo · P Pause
+            Hold Both Hands to Webcam · Keys 1–6 Left · Keys 7–0 / - / = Right · [W] Abhaya Ward · [E] Mahamudra · Space Cast
           </div>
         </div>
       )}
@@ -359,23 +384,39 @@ export const GameModals: React.FC<GameModalsProps> = ({
         </div>
       )}
 
-      {/* ==================== VICTORY / GAME OVER MODAL ==================== */}
+      {/* ==================== VICTORY / GAME OVER RITUAL SCROLL SUMMARY MODAL ==================== */}
       {gameState === 'gameover' && runSnapshot && (
         <div
           className="relative w-full max-w-lg rounded-lg border-2 border-[#8C6D32] bg-[#090D0C]/95 p-7 shadow-2xl text-center transition-all duration-500"
           role="dialog"
           aria-labelledby="gameover-heading"
+          data-testid="ritual-scroll-summary"
         >
           <TempleCornerOrnament position="tl" />
           <TempleCornerOrnament position="tr" />
           <TempleCornerOrnament position="bl" />
           <TempleCornerOrnament position="br" />
 
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-[#111916] border border-[#785C2A] mb-3">
-            {runSnapshot.outcome === 'victory' ? (
-              <Sparkles className="w-6 h-6 text-[#FBBF24]" />
-            ) : (
-              <ShieldAlert className="w-6 h-6 text-[#EF4444]" />
+          <div className="flex items-center justify-center gap-3 mb-3">
+            <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-[#111916] border border-[#785C2A]">
+              {runSnapshot.outcome === 'victory' ? (
+                <Sparkles className="w-6 h-6 text-[#FBBF24]" />
+              ) : (
+                <ShieldAlert className="w-6 h-6 text-[#EF4444]" />
+              )}
+            </div>
+            {runSnapshot.ritualRank && (
+              <div
+                data-testid="ritual-rank-badge"
+                className="flex flex-col items-center justify-center px-3.5 py-1 rounded border-2 border-[#D4AF37] bg-[#141E1B] shadow-[0_0_18px_rgba(212,175,55,0.3)]"
+              >
+                <span className="text-[9px] uppercase tracking-widest text-[#A89882]">
+                  Ritual Rank
+                </span>
+                <span className="font-display font-black text-2xl leading-none text-[#FBBF24]">
+                  {runSnapshot.ritualRank}
+                </span>
+              </div>
             )}
           </div>
 
@@ -387,38 +428,68 @@ export const GameModals: React.FC<GameModalsProps> = ({
           >
             {runSnapshot.outcome === 'victory' ? 'DAANAV BANISHED' : 'TANTRIK FALLEN'}
           </h2>
-          <p className="text-sm text-[#C7B69E] mb-6">
+          <p className="text-sm text-[#C7B69E] mb-5">
             {runSnapshot.outcome === 'victory'
               ? 'Your sacred mudras shattered the Horned Demon King and sealed the temple sanctum.'
               : 'The Horned Daanav overwhelmed your defenses before the ritual could be completed.'}
           </p>
 
-          {/* 3 Tabular-Nums Mastery / Progress Metric Tiles */}
-          <div className="grid grid-cols-3 gap-3 mb-6">
-            <div className="p-3 rounded bg-[#101715] border border-[#5E4923]">
-              <div className="text-[11px] uppercase tracking-wider text-[#A89882] mb-1">
+          {/* 6 Tabular-Nums Ritual Scroll Summary Metric Tiles */}
+          <div className="grid grid-cols-3 gap-2.5 mb-6">
+            <div className="p-2.5 rounded bg-[#101715] border border-[#5E4923]">
+              <div className="text-[10px] uppercase tracking-wider text-[#A89882] mb-0.5">
                 Best Streak
               </div>
-              <div className="font-mono-tabular font-bold text-xl text-[#FBBF24]">
+              <div className="font-mono-tabular font-bold text-lg text-[#FBBF24]">
                 {runSnapshot.bestStreak}x
               </div>
             </div>
-            <div className="p-3 rounded bg-[#101715] border border-[#5E4923]">
-              <div className="text-[11px] uppercase tracking-wider text-[#A89882] mb-1">
+            <div className="p-2.5 rounded bg-[#101715] border border-[#5E4923]">
+              <div className="text-[10px] uppercase tracking-wider text-[#A89882] mb-0.5">
                 {runSnapshot.outcome === 'victory' ? 'Clear Time' : 'Daanav HP Left'}
               </div>
-              <div className="font-mono-tabular font-bold text-xl text-[#F5EFE6]">
+              <div className="font-mono-tabular font-bold text-lg text-[#F5EFE6]">
                 {runSnapshot.outcome === 'victory'
                   ? `${runSnapshot.clearTimeSec}s`
                   : `${runSnapshot.daanavHpLeft}%`}
               </div>
             </div>
-            <div className="p-3 rounded bg-[#101715] border border-[#5E4923]">
-              <div className="text-[11px] uppercase tracking-wider text-[#A89882] mb-1">
+            <div className="p-2.5 rounded bg-[#101715] border border-[#5E4923]">
+              <div className="text-[10px] uppercase tracking-wider text-[#A89882] mb-0.5">
                 Spells Cast
               </div>
-              <div className="font-mono-tabular font-bold text-xl text-[#D4AF37]">
+              <div className="font-mono-tabular font-bold text-lg text-[#D4AF37]">
                 {runSnapshot.spellsCast}
+              </div>
+            </div>
+            <div className="p-2.5 rounded bg-[#101715] border border-[#5E4923]">
+              <div className="text-[10px] uppercase tracking-wider text-[#A89882] mb-0.5">
+                Fastest Seal
+              </div>
+              <div
+                className="font-mono-tabular font-bold text-lg text-[#FDE68A]"
+                data-testid="summary-fastest-cast"
+              >
+                {runSnapshot.fastestCastSec ? `${runSnapshot.fastestCastSec.toFixed(2)}s` : '—'}
+              </div>
+            </div>
+            <div className="p-2.5 rounded bg-[#101715] border border-[#5E4923]">
+              <div className="text-[10px] uppercase tracking-wider text-[#A89882] mb-0.5">
+                Seal Accuracy
+              </div>
+              <div
+                className="font-mono-tabular font-bold text-lg text-[#34D399]"
+                data-testid="summary-accuracy"
+              >
+                {runSnapshot.accuracyPct ?? 100}%
+              </div>
+            </div>
+            <div className="p-2.5 rounded bg-[#101715] border border-[#5E4923]">
+              <div className="text-[10px] uppercase tracking-wider text-[#A89882] mb-0.5">
+                Abhaya Parries
+              </div>
+              <div className="font-mono-tabular font-bold text-lg text-[#60A5FA]">
+                {runSnapshot.parriesCount ?? 0}
               </div>
             </div>
           </div>
@@ -452,3 +523,4 @@ export const GameModals: React.FC<GameModalsProps> = ({
     </div>
   );
 };
+

@@ -18,6 +18,11 @@ import {
   mapKeyToHandMudra,
   normalizeMediaPipeCategory,
   evaluateMatchOutcome,
+  evaluateMudraSynergy,
+  calculatePranaGain,
+  calculateParriedDaanavDamage,
+  isDaanavPhase2Unbound,
+  calculateRitualRank,
 } from './rules';
 
 test('MUDRAS defines all 6 required Tantrik mudras', () => {
@@ -119,3 +124,62 @@ test('evaluateMatchOutcome detects victory and defeat thresholds', () => {
   assert.equal(evaluateMatchOutcome(40, 0), 'victory');
   assert.equal(evaluateMatchOutcome(0, 30), 'defeat');
 });
+
+test('evaluateMudraSynergy resolves Agni burn, Prana heal, and Vajra stun with Sanskrit mantra titles', () => {
+  const agni = evaluateMudraSynergy({ left: 'ILoveYou', right: 'Open_Palm' });
+  assert.equal(agni.type, 'agni');
+  assert.equal(agni.bonusDamage, 5);
+  assert.equal(agni.mantraTitle, 'KARANA–ABHAYA SIDDHI!');
+
+  const prana = evaluateMudraSynergy({ left: 'Open_Palm', right: 'Victory' });
+  assert.equal(prana.type, 'prana');
+  assert.equal(prana.healHp, 6);
+  assert.equal(prana.mantraTitle, 'ABHAYA–PRANA SIDDHI!');
+
+  const vajra = evaluateMudraSynergy({ left: 'Closed_Fist', right: 'Thumb_Up' });
+  assert.equal(vajra.type, 'vajra');
+  assert.equal(vajra.stunBonusMs, 850);
+  assert.equal(vajra.mantraTitle, 'MUSHTI–SHIKHARA SIDDHI!');
+});
+
+test('calculatePranaGain, calculateParriedDaanavDamage, isDaanavPhase2Unbound, and calculateRitualRank compute accurate values', () => {
+  assert.equal(calculatePranaGain(0, 0), 34);
+  assert.equal(calculatePranaGain(70, 3), 100);
+
+  assert.equal(calculateParriedDaanavDamage(20), 6);
+  assert.equal(isDaanavPhase2Unbound(65), false);
+  assert.equal(isDaanavPhase2Unbound(50), true);
+
+  assert.equal(
+    calculateRitualRank({ outcome: 'victory', tantrikHpLeft: 88, bestStreak: 4, accuracyPct: 92 }),
+    'S'
+  );
+  assert.equal(
+    calculateRitualRank({ outcome: 'victory', tantrikHpLeft: 50, bestStreak: 2, accuracyPct: 70 }),
+    'A'
+  );
+  assert.equal(
+    calculateRitualRank({ outcome: 'defeat', tantrikHpLeft: 0, bestStreak: 1, accuracyPct: 40 }),
+    'C'
+  );
+});
+
+test('selectDaanavIdleTaunt selects randomized health-tiered taunts and avoids consecutive duplicates', async () => {
+  const { DAANAV_IDLE_TAUNTS, getDaanavTauntTier, selectDaanavIdleTaunt } = await import('./rules');
+
+  assert.equal(getDaanavTauntTier(90), 'high');
+  assert.equal(getDaanavTauntTier(55), 'mid');
+  assert.equal(getDaanavTauntTier(20), 'low');
+
+  const highTaunt = selectDaanavIdleTaunt(90, null, () => 0);
+  assert.ok(DAANAV_IDLE_TAUNTS.high.includes(highTaunt));
+
+  const nonDuplicateHigh = selectDaanavIdleTaunt(90, highTaunt, () => 0);
+  assert.notEqual(nonDuplicateHigh, highTaunt);
+  assert.ok(DAANAV_IDLE_TAUNTS.high.includes(nonDuplicateHigh));
+
+  const lowTaunt = selectDaanavIdleTaunt(20, null, () => 0.5);
+  assert.ok(DAANAV_IDLE_TAUNTS.low.includes(lowTaunt));
+});
+
+

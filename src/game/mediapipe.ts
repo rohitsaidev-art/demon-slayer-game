@@ -37,6 +37,48 @@ const VISION_WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.
 const GESTURE_MODEL_URL =
   'https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task';
 
+let logFilterInstalled = false;
+
+/**
+ * MediaPipe's Emscripten WASM binary routes C++ Abseil/TFLite informational logs
+ * (such as "INFO: Created TensorFlow Lite XNNPACK delegate for CPU.") to `stderr`,
+ * which Emscripten forwards to `console.error`. This filter prevents those benign
+ * WASM info/warning lines from triggering false-positive error banners while keeping
+ * all real errors intact.
+ */
+export function installMediaPipeLogFilter(): void {
+  if (logFilterInstalled || typeof console === 'undefined') return;
+  logFilterInstalled = true;
+
+  const isBenignMediaPipeLog = (args: unknown[]): boolean => {
+    if (args.length === 0) return false;
+    const text = args.map((a) => (typeof a === 'string' ? a : String(a ?? ''))).join(' ');
+    return (
+      text.includes('Created TensorFlow Lite XNNPACK delegate') ||
+      text.includes('XNNPACK delegate for CPU') ||
+      text.includes('TensorFlow Lite') ||
+      /^(INFO|I0000|W0000)\b/.test(text.trim()) ||
+      text.includes('gl_context_webgl.cc') ||
+      text.includes('Graph successfully started running')
+    );
+  };
+
+  const origError = console.error.bind(console);
+  const origWarn = console.warn.bind(console);
+
+  console.error = (...args: unknown[]) => {
+    if (isBenignMediaPipeLog(args)) return;
+    origError(...args);
+  };
+
+  console.warn = (...args: unknown[]) => {
+    if (isBenignMediaPipeLog(args)) return;
+    origWarn(...args);
+  };
+}
+
+installMediaPipeLogFilter();
+
 function dist2D(a: Landmark, b: Landmark): number {
   const dx = a.x - b.x;
   const dy = a.y - b.y;
@@ -129,6 +171,7 @@ export function classifyMudraFromLandmarks(
 }
 
 export async function createMediaPipeRecognizer(): Promise<MediaPipeGestureRecognizer> {
+  installMediaPipeLogFilter();
   const visionModule = await import(/* @vite-ignore */ VISION_ESM_URL);
   const { FilesetResolver, GestureRecognizer } = visionModule;
 

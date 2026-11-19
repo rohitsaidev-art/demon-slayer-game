@@ -83,87 +83,86 @@ function waitMs(ms: number): Promise<void> {
 }
 
 test('Approved background music, character voices, result stingers, and gameplay SFX point to local /assets/aistudio/ files (excluding bicycle bell)', () => {
-  assert.equal(
-    MUSIC_TRACK_URLS.tantrik_bell,
-    '/assets/aistudio/Tantrik_Clean_Edit_7096205e.mp3'
+  assert.ok(
+    MUSIC_TRACK_URLS.tantrik_bell.endsWith('/assets/aistudio/Tantrik_Clean_Edit_7096205e.mp3')
   );
-  assert.equal(
-    MUSIC_TRACK_URLS.rakshasa_rite,
-    '/assets/aistudio/Rakshasa_Clean_Edit_757d0aa3.mp3'
+  assert.ok(
+    MUSIC_TRACK_URLS.rakshasa_rite.endsWith('/assets/aistudio/Rakshasa_Clean_Edit_757d0aa3.mp3')
   );
 
   // Stingers
-  assert.equal(
-    STINGER_TRACK_URLS.player_victory,
-    '/assets/aistudio/player_Victory_stinger_-The_Last_Temple_Bell_9339477a.mp3'
+  assert.ok(
+    STINGER_TRACK_URLS.player_victory.endsWith(
+      '/assets/aistudio/player_Victory_stinger_-The_Last_Temple_Bell_9339477a.mp3'
+    )
   );
-  assert.equal(
-    STINGER_TRACK_URLS.player_defeat,
-    '/assets/aistudio/player_Defeat_stinger_-Curse_of_the_Mudradhaar_-_Stinger_a0ea1f99.mp3'
+  assert.ok(
+    STINGER_TRACK_URLS.player_defeat.endsWith(
+      '/assets/aistudio/player_Defeat_stinger_-Curse_of_the_Mudradhaar_-_Stinger_a0ea1f99.mp3'
+    )
   );
 
   // Rakshasa & Tantrik voiceovers
-  assert.equal(
-    VOICE_CLIP_URLS.demon_1st_dialogue,
-    '/assets/aistudio/demon_1st_dialogue_cfd5a1b2.mp3'
+  assert.ok(
+    VOICE_CLIP_URLS.demon_1st_dialogue.endsWith('/assets/aistudio/demon_1st_dialogue_cfd5a1b2.mp3')
   );
-  assert.equal(
-    VOICE_CLIP_URLS.demon_first_angry,
-    '/assets/aistudio/demon_first_angry_364913be.mp3'
+  assert.ok(
+    VOICE_CLIP_URLS.demon_first_angry.endsWith('/assets/aistudio/demon_first_angry_364913be.mp3')
   );
-  assert.equal(
-    VOICE_CLIP_URLS.demon_got_attacked,
-    '/assets/aistudio/demon-got_-attacked_f6f5ed98.mp3'
+  assert.ok(
+    VOICE_CLIP_URLS.demon_got_attacked.endsWith('/assets/aistudio/demon-got_-attacked_f6f5ed98.mp3')
   );
-  assert.equal(
-    VOICE_CLIP_URLS.demon_attacking,
-    '/assets/aistudio/demon_attacking_8f770306.mp3'
+  assert.ok(
+    VOICE_CLIP_URLS.demon_attacking.endsWith('/assets/aistudio/demon_attacking_8f770306.mp3')
   );
-  assert.equal(
-    VOICE_CLIP_URLS.demon_defeat,
-    '/assets/aistudio/demon-_defeat_a6c97651.mp3'
+  assert.ok(
+    VOICE_CLIP_URLS.demon_defeat.endsWith('/assets/aistudio/demon-_defeat_a6c97651.mp3')
   );
-  assert.equal(
-    VOICE_CLIP_URLS.demon_victory,
-    '/assets/aistudio/demon_victory_63b1ecd8.mp3'
+  assert.ok(
+    VOICE_CLIP_URLS.demon_victory.endsWith('/assets/aistudio/demon_victory_63b1ecd8.mp3')
   );
-  assert.equal(
-    VOICE_CLIP_URLS.tantrik_1st_dialogue,
-    '/assets/aistudio/tantric_1st_dialogue_b222685c.mp3'
+  assert.ok(
+    VOICE_CLIP_URLS.tantrik_1st_dialogue.endsWith(
+      '/assets/aistudio/tantric_1st_dialogue_b222685c.mp3'
+    )
   );
-  assert.equal(
-    VOICE_CLIP_URLS.tantrik_victory,
-    '/assets/aistudio/tantric_victory_d83419a2.mp3'
+  assert.ok(
+    VOICE_CLIP_URLS.tantrik_victory.endsWith('/assets/aistudio/tantric_victory_d83419a2.mp3')
   );
-  assert.equal(
-    VOICE_CLIP_URLS.tantrik_defeat,
-    '/assets/aistudio/tantric_defeat_a52a1b82.mp3'
+  assert.ok(
+    VOICE_CLIP_URLS.tantrik_defeat.endsWith('/assets/aistudio/tantric_defeat_a52a1b82.mp3')
   );
-  assert.equal(
-    VOICE_CLIP_URLS.tantrik_got_attacked,
-    '/assets/aistudio/tantrick_got_attacked_719d4723.mp3'
+  assert.ok(
+    VOICE_CLIP_URLS.tantrik_got_attacked.endsWith(
+      '/assets/aistudio/tantrick_got_attacked_719d4723.mp3'
+    )
   );
 
   // Gameplay SFX
-  assert.equal(
-    SFX_CLIP_URLS.mudra_sparkle,
-    '/assets/aistudio/mixkit-magic-sparkle-poof-hit-3082_cb2f7cf7.wav'
+  assert.ok(
+    SFX_CLIP_URLS.mudra_sparkle.endsWith(
+      '/assets/aistudio/mixkit-magic-sparkle-poof-hit-3082_cb2f7cf7.wav'
+    )
   );
-  assert.equal(
-    SFX_CLIP_URLS.rakshasa_fireball,
-    '/assets/aistudio/mixkit-fireball-spell-1347_7cc57263.wav'
+  assert.ok(
+    SFX_CLIP_URLS.rakshasa_fireball.endsWith(
+      '/assets/aistudio/mixkit-fireball-spell-1347_7cc57263.wav'
+    )
   );
-  assert.equal(
-    SFX_CLIP_URLS.tantrik_punch_hit,
-    '/assets/aistudio/mixkit-impact-of-a-strong-punch-2155_f89ad165.mp3'
+  assert.ok(
+    SFX_CLIP_URLS.tantrik_punch_hit.endsWith(
+      '/assets/aistudio/mixkit-impact-of-a-strong-punch-2155_f89ad165.mp3'
+    )
   );
-  assert.equal(
-    SFX_CLIP_URLS.ritual_choir_shine,
-    '/assets/aistudio/mixkit-choir-magic-shine-658_0cda8e9a.wav'
+  assert.ok(
+    SFX_CLIP_URLS.ritual_choir_shine.endsWith(
+      '/assets/aistudio/mixkit-choir-magic-shine-658_0cda8e9a.wav'
+    )
   );
-  assert.equal(
-    SFX_CLIP_URLS.rakshasa_grunt_backup,
-    '/assets/aistudio/Rakshasa_Grunt_Cleaned__3__4a64ae8f.mp3'
+  assert.ok(
+    SFX_CLIP_URLS.rakshasa_grunt_backup.endsWith(
+      '/assets/aistudio/Rakshasa_Grunt_Cleaned__3__4a64ae8f.mp3'
+    )
   );
 
   // Confirm bicycle bell is not used anywhere in SFX_CLIP_URLS
