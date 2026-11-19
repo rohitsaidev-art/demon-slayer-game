@@ -9,3 +9,4 @@ coverage/
 
 .aistudio/
 .playwright-cli/
+.vercel
